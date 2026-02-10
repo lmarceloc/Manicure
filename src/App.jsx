@@ -17,7 +17,7 @@ const STATUS_STYLES = {
 }
 
 const STATUS_LABELS = {
-  pendente: 'Pendente',
+  pendente: 'Agendado',
   confirmado: 'Confirmado',
   concluido: 'Concluído',
   cancelado: 'Cancelado',
