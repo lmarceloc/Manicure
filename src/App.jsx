@@ -184,6 +184,7 @@ export default function App() {
   const today = toLocalDateInput(new Date())
   const [selectedDate, setSelectedDate] = useState(today)
   const [agendaMode, setAgendaMode] = useState('dia')
+  const [weekFocusDate, setWeekFocusDate] = useState(today)
 
   const [clientes, setClientes] = useState([])
   const [servicos, setServicos] = useState([])
@@ -242,20 +243,23 @@ export default function App() {
     loadData()
   }, [])
 
-  const agendaFiltrada = useMemo(() => {
-    const start = startOfWeek(selectedDate)
-    const end = endOfWeek(selectedDate)
-    const startStr = toLocalDateInput(start)
-    const endStr = toLocalDateInput(end)
+  useEffect(() => {
+    if (agendaMode === 'semana') {
+      setWeekFocusDate(selectedDate)
+    }
+  }, [agendaMode, selectedDate])
 
-    return agendamentos.filter((item) => {
-      const dateStr = toLocalDateInput(item.data_hora_inicio)
-      if (agendaMode === 'dia') {
-        return dateStr === selectedDate
-      }
-      return dateStr >= startStr && dateStr <= endStr
-    })
-  }, [agendamentos, agendaMode, selectedDate])
+  const agendaFiltrada = useMemo(() => {
+    if (agendaMode === 'semana') {
+      return agendamentos.filter(
+        (item) => toLocalDateInput(item.data_hora_inicio) === weekFocusDate
+      )
+    }
+
+    return agendamentos.filter(
+      (item) => toLocalDateInput(item.data_hora_inicio) === selectedDate
+    )
+  }, [agendamentos, agendaMode, selectedDate, weekFocusDate])
 
   const agendaAgrupada = useMemo(() => {
     const map = new Map()
@@ -697,10 +701,18 @@ export default function App() {
                           (item) => toLocalDateInput(item.data_hora_inicio) === dayKey
                         )
                         const slots = getOccupiedSlots(dayItems, servicos)
+                        const isFocused = weekFocusDate === dayKey
                         return (
-                          <div
+                          <button
                             key={dayKey}
-                            className="glass-card min-w-[220px] snap-start rounded-2xl p-4"
+                            type="button"
+                            onClick={() => {
+                              setSelectedDate(dayKey)
+                              setWeekFocusDate(dayKey)
+                            }}
+                            className={`glass-card min-w-[220px] snap-start rounded-2xl p-4 text-left transition ${
+                              isFocused ? 'border border-sky-300/50 bg-white/15' : ''
+                            }`}
                           >
                             <p className="text-sm font-semibold">{formatDate(dayKey)}</p>
                             <p className="text-xs text-white/50">{dayItems.length} ocupados</p>
@@ -718,7 +730,7 @@ export default function App() {
                                 ))
                               )}
                             </div>
-                          </div>
+                          </button>
                         )
                       })}
                     </div>
@@ -728,7 +740,9 @@ export default function App() {
                 <div className="space-y-4">
                   {agendaAgrupada.length === 0 ? (
                     <div className="glass-panel rounded-2xl px-6 py-8 text-center text-white/60">
-                      Nenhum agendamento neste período.
+                      {agendaMode === 'semana'
+                        ? 'Nenhum agendamento para o dia selecionado.'
+                        : 'Nenhum agendamento neste período.'}
                     </div>
                   ) : null}
 
