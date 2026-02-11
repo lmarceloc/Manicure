@@ -12,8 +12,8 @@ const NAV_ITEMS = [
 const STATUS_STYLES = {
   pendente: 'bg-amber-300/15 text-amber-200 border border-amber-300/40',
   confirmado: 'bg-sky-300/15 text-sky-200 border border-sky-300/40',
-  concluido: 'bg-emerald-300/15 text-emerald-200 border border-emerald-300/40',
-  cancelado: 'bg-rose-300/15 text-rose-200 border border-rose-300/40',
+  concluido: 'bg-red-300/15 text-red-200 border border-red-300/40',
+  cancelado: 'bg-gray-300/15 text-gray-200 border border-gray-300/40',
 }
 
 const STATUS_LABELS = {
