@@ -175,6 +175,36 @@ const getAvailableTimes = (duration, appointmentsForDay, excludeId, servicos) =>
   return available
 }
 
+const getPacoteTotalByService = (servico) => {
+  if (!servico) return 0
+
+  const explicitTotal = Number(
+    servico?.pacote_total ??
+      servico?.pacote_quantidade ??
+      servico?.quantidade_pacote ??
+      servico?.qtd_pacote
+  )
+  if (Number.isFinite(explicitTotal) && explicitTotal > 1) return explicitTotal
+
+  const nome = String(servico.nome || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (!nome) return 0
+
+  // Regex com exec para ampliar compatibilidade com Safari/iOS.
+  const regex = /(\d+)\s*(maos?|pes?)/g
+  let match = regex.exec(nome)
+  let total = 0
+
+  while (match) {
+    total += Number(match[1] || 0)
+    match = regex.exec(nome)
+  }
+
+  return Number.isFinite(total) && total > 1 ? total : 0
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('agenda')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -305,6 +335,30 @@ export default function App() {
   const ticketMedio =
     faturamentoFiltrado.length > 0 ? totalReceita / faturamentoFiltrado.length : 0
 
+  const servicosById = useMemo(() => {
+    const map = new Map()
+    servicos.forEach((item) => map.set(item.id, item))
+    return map
+  }, [servicos])
+
+  const pacoteConcluidosByKey = useMemo(() => {
+    const map = new Map()
+
+    agendamentos.forEach((item) => {
+      if (item.status !== 'concluido') return
+      if (!item.cliente_id || !item.servico_id) return
+
+      const servico = item.servico ?? servicosById.get(item.servico_id)
+      const totalPacote = getPacoteTotalByService(servico)
+      if (!totalPacote) return
+
+      const key = `${item.cliente_id}:${item.servico_id}`
+      map.set(key, (map.get(key) || 0) + 1)
+    })
+
+    return map
+  }, [agendamentos, servicosById])
+
   const resetClientForm = () => setClientForm(createClientForm())
   const resetServiceForm = () => setServiceForm(createServiceForm())
   const resetAgendamentoForm = () => setAgendamentoForm(createAgendamentoForm(selectedDate))
@@ -349,6 +403,31 @@ export default function App() {
     }
 
     setClientModalOpen(false)
+    resetClientForm()
+    await loadData()
+  }
+
+  const deleteClient = async () => {
+    if (!editingClient) return
+
+    const confirmed = window.confirm(
+      `Tem certeza que deseja excluir a cliente "${editingClient.nome_completo}"?`
+    )
+    if (!confirmed) return
+
+    const response = await supabase.from('clientes').delete().eq('id', editingClient.id)
+
+    if (response.error) {
+      if (response.error.code === '23503') {
+        setError('Não foi possível excluir: a cliente possui agendamentos vinculados.')
+      } else {
+        setError('Não foi possível excluir a cliente.')
+      }
+      return
+    }
+
+    setClientModalOpen(false)
+    setEditingClient(null)
     resetClientForm()
     await loadData()
   }
@@ -771,6 +850,23 @@ export default function App() {
                         <div className="mt-4 space-y-3">
                           {itens.map((item) => {
                             const duracao = getServicoDuracao(item, servicos)
+                            const servicoAgendamento = item.servico ?? servicosById.get(item.servico_id)
+                            const totalPacote = getPacoteTotalByService(servicoAgendamento)
+                            const pacoteKey =
+                              totalPacote && item.cliente_id && item.servico_id
+                                ? `${item.cliente_id}:${item.servico_id}`
+                                : ''
+                            const totalConcluidosPacote = pacoteKey
+                              ? pacoteConcluidosByKey.get(pacoteKey) || 0
+                              : 0
+                            const progressoPacoteAtual =
+                              totalConcluidosPacote > 0
+                                ? ((totalConcluidosPacote - 1) % totalPacote) + 1
+                                : 0
+                            const pacoteConcluido =
+                              totalPacote > 0 &&
+                              totalConcluidosPacote > 0 &&
+                              totalConcluidosPacote % totalPacote === 0
                             const availableTimes = getAvailableTimes(
                               duracao,
                               itens,
@@ -809,6 +905,39 @@ export default function App() {
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
                                   <p className="text-xs text-white/50">{item.endereco_atendimento}</p>
+                                  {totalPacote > 0 ? (
+                                    <div className="mt-2 space-y-1">
+                                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/55">
+                                        Pacote {progressoPacoteAtual}/{totalPacote}
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {Array.from({ length: totalPacote }).map((_, index) => {
+                                          const checked = index < progressoPacoteAtual
+                                          return (
+                                            <span
+                                              key={`${item.id}-pacote-${index}`}
+                                              className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs font-bold ${
+                                                checked
+                                                  ? 'border-emerald-300/70 bg-emerald-300/20 text-emerald-100'
+                                                  : 'border-white/20 bg-white/5 text-white/30'
+                                              }`}
+                                            >
+                                              {checked ? '✓' : ''}
+                                            </span>
+                                          )
+                                        })}
+                                      </div>
+                                      {pacoteConcluido ? (
+                                        <p className="text-[11px] text-emerald-200/80">
+                                          Pacote concluído.
+                                        </p>
+                                      ) : (
+                                        <p className="text-[11px] text-white/40">
+                                          O tick marca quando o atendimento fica concluído.
+                                        </p>
+                                      )}
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <div className="flex flex-col gap-3 md:items-end">
                                   <div className="flex flex-wrap items-center gap-3">
@@ -1139,14 +1268,27 @@ export default function App() {
         title={editingClient ? 'Editar cliente' : 'Nova cliente'}
         onClose={() => setClientModalOpen(false)}
         footer={
-          <>
+          <div className="flex w-full items-center justify-between gap-3">
+            {editingClient ? (
+              <button
+                type="button"
+                className="btn border border-red-300/60 text-red-200 hover:bg-red-300/10"
+                onClick={deleteClient}
+              >
+                Excluir cliente
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
             <button type="button" className="btn-outline" onClick={() => setClientModalOpen(false)}>
               Cancelar
             </button>
             <button type="button" className="btn-primary" onClick={saveClient}>
               Salvar
             </button>
-          </>
+            </div>
+          </div>
         }
       >
         <div className="space-y-4">
