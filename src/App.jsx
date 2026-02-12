@@ -601,6 +601,41 @@ export default function App() {
     await loadData()
   }
 
+  const deleteAgendamento = async () => {
+    if (!editingAgendamento) return
+
+    const confirmed = window.confirm('Tem certeza que deseja excluir este agendamento?')
+    if (!confirmed) return
+
+    const response = await supabase.from('agendamentos').delete().eq('id', editingAgendamento.id)
+
+    if (response.error) {
+      setError('Não foi possível excluir o agendamento.')
+      return
+    }
+
+    setRescheduleTimes((prev) => {
+      const next = { ...prev }
+      delete next[editingAgendamento.id]
+      return next
+    })
+    setRescheduleLocks((prev) => {
+      const next = { ...prev }
+      delete next[editingAgendamento.id]
+      return next
+    })
+    setEditLocks((prev) => {
+      const next = { ...prev }
+      delete next[editingAgendamento.id]
+      return next
+    })
+
+    setAgendamentoModalOpen(false)
+    setEditingAgendamento(null)
+    resetAgendamentoForm()
+    await loadData()
+  }
+
   const servicosAtivos = servicos.filter((servico) => servico.ativo)
 
   const scrollWeek = (direction) => {
@@ -931,11 +966,7 @@ export default function App() {
                                         <p className="text-[11px] text-emerald-200/80">
                                           Pacote concluído.
                                         </p>
-                                      ) : (
-                                        <p className="text-[11px] text-white/40">
-                                          O tick marca quando o atendimento fica concluído.
-                                        </p>
-                                      )}
+                                      ) : null}
                                     </div>
                                   ) : null}
                                 </div>
@@ -1400,18 +1431,31 @@ export default function App() {
         title={editingAgendamento ? 'Editar agendamento' : 'Novo agendamento'}
         onClose={() => setAgendamentoModalOpen(false)}
         footer={
-          <>
-            <button
-              type="button"
-              className="btn-outline"
-              onClick={() => setAgendamentoModalOpen(false)}
-            >
-              Cancelar
-            </button>
-            <button type="button" className="btn-primary" onClick={saveAgendamento}>
-              Salvar
-            </button>
-          </>
+          <div className="flex w-full items-center justify-between gap-3">
+            {editingAgendamento ? (
+              <button
+                type="button"
+                className="btn border border-red-300/60 text-red-200 hover:bg-red-300/10"
+                onClick={deleteAgendamento}
+              >
+                Excluir agendamento
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => setAgendamentoModalOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button type="button" className="btn-primary" onClick={saveAgendamento}>
+                Salvar
+              </button>
+            </div>
+          </div>
         }
       >
         <div className="space-y-4">
