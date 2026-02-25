@@ -37,7 +37,6 @@ const createClientForm = () => ({
 
 const createServiceForm = () => ({
   nome: '',
-  valor: '',
   duracao_minutos: '',
   ativo: true,
 })
@@ -45,6 +44,7 @@ const createServiceForm = () => ({
 const createAgendamentoForm = (dateValue) => ({
   cliente_id: '',
   servico_id: '',
+  valor_cobrado: '',
   data: dateValue,
   hora_inicio: '09:00',
   status: 'pendente',
@@ -131,6 +131,30 @@ const getServicoDuracao = (agendamento, servicos) => {
   )
 }
 
+const parseCurrencyNumber = (value) => {
+  if (typeof value === 'number') return value
+  const rawValue = String(value ?? '').trim()
+  if (!rawValue) return NaN
+
+  const normalized = rawValue.includes(',')
+    ? rawValue.replace(/\./g, '').replace(',', '.')
+    : rawValue
+  const numericValue = Number(normalized.replace(/[^\d.-]/g, ''))
+  return Number.isFinite(numericValue) ? numericValue : NaN
+}
+
+const getValorAgendamento = (agendamento, servicos) => {
+  const valorAgendamento = Number(agendamento?.valor_cobrado)
+  if (Number.isFinite(valorAgendamento)) return valorAgendamento
+
+  const valorServico = Number(
+    agendamento?.servico?.valor ??
+      servicos.find((item) => item.id === agendamento?.servico_id)?.valor ??
+      0
+  )
+  return Number.isFinite(valorServico) ? valorServico : 0
+}
+
 const getAppointmentRange = (agendamento, servicos) => {
   const startMinutes = timeToMinutes(toLocalTimeInput(agendamento.data_hora_inicio))
   let endMinutes = timeToMinutes(toLocalTimeInput(agendamento.data_hora_fim))
@@ -191,6 +215,21 @@ const getPacoteTotalByService = (servico) => {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
   if (!nome) return 0
+
+  // Regra de negócio: no pacote "4 mãos e 2 pés", cada sessão considera 1 mão,
+  // então o controle visual precisa ter 4 etapas.
+  const isPacoteQuatroMaosDoisPes =
+    /\b4\s*maos?\b/.test(nome) &&
+    /\b2\s*pes?\b/.test(nome) &&
+    /\be\b/.test(nome)
+  if (isPacoteQuatroMaosDoisPes) return 4
+
+  // Regra de negócio: no pacote "2 mãos e 2 pés", cada sessão consome 2 etapas.
+  const isPacoteDuasMaosDoisPes =
+    /\b2\s*maos?\b/.test(nome) &&
+    /\b2\s*pes?\b/.test(nome) &&
+    /\be\b/.test(nome)
+  if (isPacoteDuasMaosDoisPes) return 2
 
   // Regex com exec para ampliar compatibilidade com Safari/iOS.
   const regex = /(\d+)\s*(maos?|pes?)/g
@@ -327,10 +366,10 @@ export default function App() {
     })
   }, [agendamentos, periodoInicio, periodoFim])
 
-  const totalReceita = faturamentoFiltrado.reduce((total, item) => {
-    const valor = item.servico?.valor ?? servicos.find((s) => s.id === item.servico_id)?.valor ?? 0
-    return total + Number(valor || 0)
-  }, 0)
+  const totalReceita = faturamentoFiltrado.reduce(
+    (total, item) => total + getValorAgendamento(item, servicos),
+    0
+  )
 
   const ticketMedio =
     faturamentoFiltrado.length > 0 ? totalReceita / faturamentoFiltrado.length : 0
@@ -442,7 +481,6 @@ export default function App() {
     setEditingService(servico)
     setServiceForm({
       nome: servico.nome || '',
-      valor: servico.valor ?? '',
       duracao_minutos: servico.duracao_minutos ?? '',
       ativo: servico.ativo ?? true,
     })
@@ -454,17 +492,16 @@ export default function App() {
       setError('Informe o nome do serviço.')
       return
     }
-    const valor = Number(String(serviceForm.valor).replace(',', '.'))
     const duracao = Number(serviceForm.duracao_minutos)
 
-    if (!valor || !duracao) {
-      setError('Informe valor e duração válidos.')
+    if (!duracao) {
+      setError('Informe duração válida.')
       return
     }
 
     const payload = {
       nome: serviceForm.nome.trim(),
-      valor,
+      valor: editingService?.valor ?? 0,
       duracao_minutos: duracao,
       ativo: Boolean(serviceForm.ativo),
     }
@@ -503,10 +540,12 @@ export default function App() {
   }
 
   const openEditAgendamento = (agendamento) => {
+    const valorAgendamento = getValorAgendamento(agendamento, servicos)
     setEditingAgendamento(agendamento)
     setAgendamentoForm({
       cliente_id: agendamento.cliente_id || '',
       servico_id: agendamento.servico_id || '',
+      valor_cobrado: String(valorAgendamento ?? ''),
       data: toLocalDateInput(agendamento.data_hora_inicio),
       hora_inicio: toLocalTimeInput(agendamento.data_hora_inicio),
       status: agendamento.status || 'pendente',
@@ -545,6 +584,11 @@ export default function App() {
       setError('Selecione cliente e serviço.')
       return
     }
+    const valorCobrado = parseCurrencyNumber(agendamentoForm.valor_cobrado)
+    if (!Number.isFinite(valorCobrado) || valorCobrado < 0) {
+      setError('Informe um valor válido para o atendimento.')
+      return
+    }
     if (!agendamentoForm.data || !agendamentoForm.hora_inicio) {
       setError('Informe data e hora de início.')
       return
@@ -575,6 +619,7 @@ export default function App() {
     const payload = {
       cliente_id: agendamentoForm.cliente_id,
       servico_id: agendamentoForm.servico_id,
+      valor_cobrado: valorCobrado,
       data_hora_inicio: inicio,
       data_hora_fim: fim,
       endereco_atendimento: agendamentoForm.endereco_atendimento.trim(),
@@ -939,7 +984,9 @@ export default function App() {
                                   <p className="text-base font-semibold">
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
-                                  <p className="text-xs text-white/50">{item.endereco_atendimento}</p>
+                                  <p className="text-xs text-white/50">
+                                    {CURRENCY.format(getValorAgendamento(item, servicos))}
+                                  </p>
                                   {totalPacote > 0 ? (
                                     <div className="mt-2 space-y-1">
                                       <p className="text-[11px] uppercase tracking-[0.12em] text-white/55">
@@ -1120,8 +1167,7 @@ export default function App() {
                 <div className="glass-card rounded-3xl p-4 md:p-6">
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div>
-                      <p className="label">Serviços</p>
-                      <h3 className="text-xl font-semibold">Catálogo de procedimentos</h3>
+                      <p className="label">SERVIÇOS</p>
                     </div>
                     <button type="button" className="btn-primary" onClick={openNewService}>
                       Novo serviço
@@ -1135,9 +1181,7 @@ export default function App() {
                       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
                           <p className="text-lg font-semibold">{servico.nome}</p>
-                          <p className="text-sm text-white/60">
-                            {servico.duracao_minutos} min · {CURRENCY.format(servico.valor)}
-                          </p>
+                          <p className="text-sm text-white/60">{servico.duracao_minutos} min</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <span
@@ -1237,11 +1281,7 @@ export default function App() {
                           </p>
                         </div>
                         <p className="text-base font-semibold text-emerald-200">
-                          {CURRENCY.format(
-                            item.servico?.valor ??
-                              servicos.find((s) => s.id === item.servico_id)?.valor ??
-                              0
-                          )}
+                          {CURRENCY.format(getValorAgendamento(item, servicos))}
                         </p>
                       </div>
                     ))}
@@ -1399,29 +1439,16 @@ export default function App() {
               placeholder="Spa dos pés, esmaltação"
             />
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="label">Valor</label>
-              <input
-                className="input"
-                value={serviceForm.valor}
-                onChange={(event) =>
-                  setServiceForm((prev) => ({ ...prev, valor: event.target.value }))
-                }
-                placeholder="120"
-              />
-            </div>
-            <div>
-              <label className="label">Duração (min)</label>
-              <input
-                className="input"
-                value={serviceForm.duracao_minutos}
-                onChange={(event) =>
-                  setServiceForm((prev) => ({ ...prev, duracao_minutos: event.target.value }))
-                }
-                placeholder="90"
-              />
-            </div>
+          <div>
+            <label className="label">Duração (min)</label>
+            <input
+              className="input"
+              value={serviceForm.duracao_minutos}
+              onChange={(event) =>
+                setServiceForm((prev) => ({ ...prev, duracao_minutos: event.target.value }))
+              }
+              placeholder="90"
+            />
           </div>
         </div>
       </Modal>
@@ -1488,6 +1515,15 @@ export default function App() {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">Valor do atendimento</label>
+            <input
+              className="input"
+              value={agendamentoForm.valor_cobrado}
+              onChange={(event) => updateAgendamentoField('valor_cobrado', event.target.value)}
+              placeholder="120,00"
+            />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
