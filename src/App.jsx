@@ -593,6 +593,11 @@ export default function App() {
           next.pacote_items = []
         }
       }
+      if (field === 'status' && value === 'concluído') {
+        if (next.pacote_items && next.pacote_items.length > 0) {
+          next.pacote_items = next.pacote_items.map(() => true)
+        }
+      }
       return next
     })
   }
@@ -1024,28 +1029,16 @@ export default function App() {
                                       </p>
                                       <div className="flex flex-wrap gap-1">
                                         {item.pacote_items.map((isCompleted, idx) => (
-                                          <button
+                                          <span
                                             key={idx}
-                                            type="button"
-                                            onClick={async () => {
-                                              const newItems = [...item.pacote_items]
-                                              newItems[idx] = !newItems[idx]
-                                              const response = await supabase
-                                                .from('agendamentos')
-                                                .update({ pacote_items: newItems })
-                                                .eq('id', item.id)
-                                              if (!response.error) {
-                                                await loadData()
-                                              }
-                                            }}
-                                            className={`h-6 w-6 rounded border flex items-center justify-center text-xs cursor-pointer transition ${
+                                            className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${
                                               isCompleted
-                                                ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold hover:bg-emerald-500/50'
-                                                : 'bg-white/5 border-white/20 text-white/40 hover:border-white/40'
+                                                ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
+                                                : 'bg-white/5 border-white/20 text-white/40'
                                             }`}
                                           >
                                             {isCompleted ? '✓' : '·'}
-                                          </button>
+                                          </span>
                                         ))}
                                       </div>
                                       {getPacoteStatus(item.pacote_items).completed === getPacoteStatus(item.pacote_items).total && getPacoteStatus(item.pacote_items).total > 0 && (
