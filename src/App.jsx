@@ -1294,7 +1294,10 @@ export default function App() {
       <Modal
         open={agendamentoModalOpen}
         title={editingAgendamento ? 'Editar agendamento' : 'Novo agendamento'}
-        onClose={() => setAgendamentoModalOpen(false)}
+        onClose={() => {
+          setAgendamentoModalOpen(false)
+          resetAgendamentoForm()
+        }}
         footer={
           <>
             <button
@@ -1447,6 +1450,7 @@ export default function App() {
                   max="20"
                   className="input w-20"
                   placeholder="Qtd"
+                  value={agendamentoForm.pacote_items?.length || 0}
                   onChange={(event) => {
                     const qty = parseInt(event.target.value) || 0
                     updateAgendamentoField('pacote_items', Array(qty).fill(false))
