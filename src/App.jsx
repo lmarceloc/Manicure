@@ -37,7 +37,6 @@ const createClientForm = () => ({
 
 const createServiceForm = () => ({
   nome: '',
-  valor: '',
   duracao_minutos: '',
   ativo: true,
 })
@@ -45,6 +44,7 @@ const createServiceForm = () => ({
 const createAgendamentoForm = (dateValue) => ({
   cliente_id: '',
   servico_id: '',
+  valor_cobrado: '',
   data: dateValue,
   hora_inicio: '09:00',
   status: 'pendente',
@@ -138,6 +138,30 @@ const getPacoteStatus = (pacoteItems) => {
   return { completed, total: pacoteItems.length }
 }
 
+const parseCurrencyNumber = (value) => {
+  if (typeof value === 'number') return value
+  const rawValue = String(value ?? '').trim()
+  if (!rawValue) return NaN
+
+  const normalized = rawValue.includes(',')
+    ? rawValue.replace(/\./g, '').replace(',', '.')
+    : rawValue
+  const numericValue = Number(normalized.replace(/[^\d.-]/g, ''))
+  return Number.isFinite(numericValue) ? numericValue : NaN
+}
+
+const getValorAgendamento = (agendamento, servicos) => {
+  const valorAgendamento = Number(agendamento?.valor_cobrado)
+  if (Number.isFinite(valorAgendamento)) return valorAgendamento
+
+  const valorServico = Number(
+    agendamento?.servico?.valor ??
+      servicos.find((item) => item.id === agendamento?.servico_id)?.valor ??
+      0
+  )
+  return Number.isFinite(valorServico) ? valorServico : 0
+}
+
 const getAppointmentRange = (agendamento, servicos) => {
   const startMinutes = timeToMinutes(toLocalTimeInput(agendamento.data_hora_inicio))
   let endMinutes = timeToMinutes(toLocalTimeInput(agendamento.data_hora_fim))
@@ -180,6 +204,51 @@ const getAvailableTimes = (duration, appointmentsForDay, excludeId, servicos) =>
   }
 
   return available
+}
+
+const getPacoteTotalByService = (servico) => {
+  if (!servico) return 0
+
+  const explicitTotal = Number(
+    servico?.pacote_total ??
+      servico?.pacote_quantidade ??
+      servico?.quantidade_pacote ??
+      servico?.qtd_pacote
+  )
+  if (Number.isFinite(explicitTotal) && explicitTotal > 1) return explicitTotal
+
+  const nome = String(servico.nome || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (!nome) return 0
+
+  // Regra de negócio: no pacote "4 mãos e 2 pés", cada sessão considera 1 mão,
+  // então o controle visual precisa ter 4 etapas.
+  const isPacoteQuatroMaosDoisPes =
+    /\b4\s*maos?\b/.test(nome) &&
+    /\b2\s*pes?\b/.test(nome) &&
+    /\be\b/.test(nome)
+  if (isPacoteQuatroMaosDoisPes) return 4
+
+  // Regra de negócio: no pacote "2 mãos e 2 pés", cada sessão consome 2 etapas.
+  const isPacoteDuasMaosDoisPes =
+    /\b2\s*maos?\b/.test(nome) &&
+    /\b2\s*pes?\b/.test(nome) &&
+    /\be\b/.test(nome)
+  if (isPacoteDuasMaosDoisPes) return 2
+
+  // Regex com exec para ampliar compatibilidade com Safari/iOS.
+  const regex = /(\d+)\s*(maos?|pes?)/g
+  let match = regex.exec(nome)
+  let total = 0
+
+  while (match) {
+    total += Number(match[1] || 0)
+    match = regex.exec(nome)
+  }
+
+  return Number.isFinite(total) && total > 1 ? total : 0
 }
 
 export default function App() {
@@ -304,13 +373,37 @@ export default function App() {
     })
   }, [agendamentos, periodoInicio, periodoFim])
 
-  const totalReceita = faturamentoFiltrado.reduce((total, item) => {
-    const valor = item.servico?.valor ?? servicos.find((s) => s.id === item.servico_id)?.valor ?? 0
-    return total + Number(valor || 0)
-  }, 0)
+  const totalReceita = faturamentoFiltrado.reduce(
+    (total, item) => total + getValorAgendamento(item, servicos),
+    0
+  )
 
   const ticketMedio =
     faturamentoFiltrado.length > 0 ? totalReceita / faturamentoFiltrado.length : 0
+
+  const servicosById = useMemo(() => {
+    const map = new Map()
+    servicos.forEach((item) => map.set(item.id, item))
+    return map
+  }, [servicos])
+
+  const pacoteConcluidosByKey = useMemo(() => {
+    const map = new Map()
+
+    agendamentos.forEach((item) => {
+      if (item.status !== 'concluido') return
+      if (!item.cliente_id || !item.servico_id) return
+
+      const servico = item.servico ?? servicosById.get(item.servico_id)
+      const totalPacote = getPacoteTotalByService(servico)
+      if (!totalPacote) return
+
+      const key = `${item.cliente_id}:${item.servico_id}`
+      map.set(key, (map.get(key) || 0) + 1)
+    })
+
+    return map
+  }, [agendamentos, servicosById])
 
   const resetClientForm = () => setClientForm(createClientForm())
   const resetServiceForm = () => setServiceForm(createServiceForm())
@@ -360,6 +453,31 @@ export default function App() {
     await loadData()
   }
 
+  const deleteClient = async () => {
+    if (!editingClient) return
+
+    const confirmed = window.confirm(
+      `Tem certeza que deseja excluir a cliente "${editingClient.nome_completo}"?`
+    )
+    if (!confirmed) return
+
+    const response = await supabase.from('clientes').delete().eq('id', editingClient.id)
+
+    if (response.error) {
+      if (response.error.code === '23503') {
+        setError('Não foi possível excluir: a cliente possui agendamentos vinculados.')
+      } else {
+        setError('Não foi possível excluir a cliente.')
+      }
+      return
+    }
+
+    setClientModalOpen(false)
+    setEditingClient(null)
+    resetClientForm()
+    await loadData()
+  }
+
   const openNewService = () => {
     resetServiceForm()
     setEditingService(null)
@@ -370,7 +488,6 @@ export default function App() {
     setEditingService(servico)
     setServiceForm({
       nome: servico.nome || '',
-      valor: servico.valor ?? '',
       duracao_minutos: servico.duracao_minutos ?? '',
       ativo: servico.ativo ?? true,
     })
@@ -382,17 +499,16 @@ export default function App() {
       setError('Informe o nome do serviço.')
       return
     }
-    const valor = Number(String(serviceForm.valor).replace(',', '.'))
     const duracao = Number(serviceForm.duracao_minutos)
 
-    if (!valor || !duracao) {
-      setError('Informe valor e duração válidos.')
+    if (!duracao) {
+      setError('Informe duração válida.')
       return
     }
 
     const payload = {
       nome: serviceForm.nome.trim(),
-      valor,
+      valor: editingService?.valor ?? 0,
       duracao_minutos: duracao,
       ativo: Boolean(serviceForm.ativo),
     }
@@ -431,10 +547,12 @@ export default function App() {
   }
 
   const openEditAgendamento = (agendamento) => {
+    const valorAgendamento = getValorAgendamento(agendamento, servicos)
     setEditingAgendamento(agendamento)
     setAgendamentoForm({
       cliente_id: agendamento.cliente_id || '',
       servico_id: agendamento.servico_id || '',
+      valor_cobrado: String(valorAgendamento ?? ''),
       data: toLocalDateInput(agendamento.data_hora_inicio),
       hora_inicio: toLocalTimeInput(agendamento.data_hora_inicio),
       status: agendamento.status || 'pendente',
@@ -474,6 +592,11 @@ export default function App() {
       setError('Selecione cliente e serviço.')
       return
     }
+    const valorCobrado = parseCurrencyNumber(agendamentoForm.valor_cobrado)
+    if (!Number.isFinite(valorCobrado) || valorCobrado < 0) {
+      setError('Informe um valor válido para o atendimento.')
+      return
+    }
     if (!agendamentoForm.data || !agendamentoForm.hora_inicio) {
       setError('Informe data e hora de início.')
       return
@@ -504,6 +627,7 @@ export default function App() {
     const payload = {
       cliente_id: agendamentoForm.cliente_id,
       servico_id: agendamentoForm.servico_id,
+      valor_cobrado: valorCobrado,
       data_hora_inicio: inicio,
       data_hora_fim: fim,
       endereco_atendimento: agendamentoForm.endereco_atendimento.trim(),
@@ -527,6 +651,41 @@ export default function App() {
     }
 
     setAgendamentoModalOpen(false)
+    resetAgendamentoForm()
+    await loadData()
+  }
+
+  const deleteAgendamento = async () => {
+    if (!editingAgendamento) return
+
+    const confirmed = window.confirm('Tem certeza que deseja excluir este agendamento?')
+    if (!confirmed) return
+
+    const response = await supabase.from('agendamentos').delete().eq('id', editingAgendamento.id)
+
+    if (response.error) {
+      setError('Não foi possível excluir o agendamento.')
+      return
+    }
+
+    setRescheduleTimes((prev) => {
+      const next = { ...prev }
+      delete next[editingAgendamento.id]
+      return next
+    })
+    setRescheduleLocks((prev) => {
+      const next = { ...prev }
+      delete next[editingAgendamento.id]
+      return next
+    })
+    setEditLocks((prev) => {
+      const next = { ...prev }
+      delete next[editingAgendamento.id]
+      return next
+    })
+
+    setAgendamentoModalOpen(false)
+    setEditingAgendamento(null)
     resetAgendamentoForm()
     await loadData()
   }
@@ -780,6 +939,23 @@ export default function App() {
                         <div className="mt-4 space-y-3">
                           {itens.map((item) => {
                             const duracao = getServicoDuracao(item, servicos)
+                            const servicoAgendamento = item.servico ?? servicosById.get(item.servico_id)
+                            const totalPacote = getPacoteTotalByService(servicoAgendamento)
+                            const pacoteKey =
+                              totalPacote && item.cliente_id && item.servico_id
+                                ? `${item.cliente_id}:${item.servico_id}`
+                                : ''
+                            const totalConcluidosPacote = pacoteKey
+                              ? pacoteConcluidosByKey.get(pacoteKey) || 0
+                              : 0
+                            const progressoPacoteAtual =
+                              totalConcluidosPacote > 0
+                                ? ((totalConcluidosPacote - 1) % totalPacote) + 1
+                                : 0
+                            const pacoteConcluido =
+                              totalPacote > 0 &&
+                              totalConcluidosPacote > 0 &&
+                              totalConcluidosPacote % totalPacote === 0
                             const availableTimes = getAvailableTimes(
                               duracao,
                               itens,
@@ -818,11 +994,9 @@ export default function App() {
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
                                   <p className="text-xs text-white/50">{item.endereco_atendimento}</p>
-                                  {item.servico?.valor && (
-                                    <p className="mt-2 text-sm font-semibold text-emerald-200">
-                                      {CURRENCY.format(item.servico.valor)}
-                                    </p>
-                                  )}
+                                  <p className="mt-2 text-sm font-semibold text-emerald-200">
+                                    {CURRENCY.format(getValorAgendamento(item, servicos))}
+                                  </p>
                                   {item.pacote_items && item.pacote_items.length > 0 && (
                                     <div className="mt-3 space-y-2">
                                       <p className="text-xs font-semibold text-white/70">
@@ -998,8 +1172,7 @@ export default function App() {
                 <div className="glass-card rounded-3xl p-4 md:p-6">
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div>
-                      <p className="label">Serviços</p>
-                      <h3 className="text-xl font-semibold">Catálogo de procedimentos</h3>
+                      <p className="label">SERVIÇOS</p>
                     </div>
                     <button type="button" className="btn-primary" onClick={openNewService}>
                       Novo serviço
@@ -1013,9 +1186,7 @@ export default function App() {
                       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
                           <p className="text-lg font-semibold">{servico.nome}</p>
-                          <p className="text-sm text-white/60">
-                            {servico.duracao_minutos} min · {CURRENCY.format(servico.valor)}
-                          </p>
+                          <p className="text-sm text-white/60">{servico.duracao_minutos} min</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <span
@@ -1115,11 +1286,7 @@ export default function App() {
                           </p>
                         </div>
                         <p className="text-base font-semibold text-emerald-200">
-                          {CURRENCY.format(
-                            item.servico?.valor ??
-                              servicos.find((s) => s.id === item.servico_id)?.valor ??
-                              0
-                          )}
+                          {CURRENCY.format(getValorAgendamento(item, servicos))}
                         </p>
                       </div>
                     ))}
@@ -1177,14 +1344,27 @@ export default function App() {
         title={editingClient ? 'Editar cliente' : 'Nova cliente'}
         onClose={() => setClientModalOpen(false)}
         footer={
-          <>
+          <div className="flex w-full items-center justify-between gap-3">
+            {editingClient ? (
+              <button
+                type="button"
+                className="btn border border-red-300/60 text-red-200 hover:bg-red-300/10"
+                onClick={deleteClient}
+              >
+                Excluir cliente
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
             <button type="button" className="btn-outline" onClick={() => setClientModalOpen(false)}>
               Cancelar
             </button>
             <button type="button" className="btn-primary" onClick={saveClient}>
               Salvar
             </button>
-          </>
+            </div>
+          </div>
         }
       >
         <div className="space-y-4">
@@ -1264,29 +1444,16 @@ export default function App() {
               placeholder="Spa dos pés, esmaltação"
             />
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="label">Valor</label>
-              <input
-                className="input"
-                value={serviceForm.valor}
-                onChange={(event) =>
-                  setServiceForm((prev) => ({ ...prev, valor: event.target.value }))
-                }
-                placeholder="120"
-              />
-            </div>
-            <div>
-              <label className="label">Duração (min)</label>
-              <input
-                className="input"
-                value={serviceForm.duracao_minutos}
-                onChange={(event) =>
-                  setServiceForm((prev) => ({ ...prev, duracao_minutos: event.target.value }))
-                }
-                placeholder="90"
-              />
-            </div>
+          <div>
+            <label className="label">Duração (min)</label>
+            <input
+              className="input"
+              value={serviceForm.duracao_minutos}
+              onChange={(event) =>
+                setServiceForm((prev) => ({ ...prev, duracao_minutos: event.target.value }))
+              }
+              placeholder="90"
+            />
           </div>
         </div>
       </Modal>
@@ -1299,18 +1466,31 @@ export default function App() {
           resetAgendamentoForm()
         }}
         footer={
-          <>
-            <button
-              type="button"
-              className="btn-outline"
-              onClick={() => setAgendamentoModalOpen(false)}
-            >
-              Cancelar
-            </button>
-            <button type="button" className="btn-primary" onClick={saveAgendamento}>
-              Salvar
-            </button>
-          </>
+          <div className="flex w-full items-center justify-between gap-3">
+            {editingAgendamento ? (
+              <button
+                type="button"
+                className="btn border border-red-300/60 text-red-200 hover:bg-red-300/10"
+                onClick={deleteAgendamento}
+              >
+                Excluir agendamento
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => setAgendamentoModalOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button type="button" className="btn-primary" onClick={saveAgendamento}>
+                Salvar
+              </button>
+            </div>
+          </div>
         }
       >
         <div className="space-y-4">
@@ -1343,6 +1523,15 @@ export default function App() {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">Valor do atendimento</label>
+            <input
+              className="input"
+              value={agendamentoForm.valor_cobrado}
+              onChange={(event) => updateAgendamentoField('valor_cobrado', event.target.value)}
+              placeholder="120,00"
+            />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
