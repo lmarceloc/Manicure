@@ -595,7 +595,13 @@ export default function App() {
       }
       if (field === 'status' && value === 'concluido') {
         if (next.pacote_items && next.pacote_items.length > 0) {
-          next.pacote_items = next.pacote_items.map(() => true)
+          // Marca apenas o próximo checkbox que está false
+          const firstFalseIndex = next.pacote_items.findIndex((item) => item === false)
+          if (firstFalseIndex !== -1) {
+            next.pacote_items = next.pacote_items.map((item, idx) =>
+              idx === firstFalseIndex ? true : item
+            )
+          }
         }
       }
       return next
