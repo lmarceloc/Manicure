@@ -1626,50 +1626,6 @@ export default function App() {
               placeholder="Detalhes adicionais"
             />
           </div>
-          <div>
-            <label className="label">Itens do pacote</label>
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                {agendamentoForm.pacote_items && agendamentoForm.pacote_items.length > 0 ? (
-                  agendamentoForm.pacote_items.map((isCompleted, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      onClick={() => {
-                        const newItems = [...agendamentoForm.pacote_items]
-                        newItems[index] = !newItems[index]
-                        updateAgendamentoField('pacote_items', newItems)
-                      }}
-                      className={`h-10 w-10 rounded-lg border-2 flex items-center justify-center font-semibold transition ${
-                        isCompleted
-                          ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
-                          : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40'
-                      }`}
-                    >
-                      {isCompleted ? '✓' : index + 1}
-                    </button>
-                  ))
-                ) : (
-                  <p className="text-sm text-white/50">Sem itens no pacote</p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  max="20"
-                  className="input w-20"
-                  placeholder="Qtd"
-                  value={agendamentoForm.pacote_items?.length || 0}
-                  onChange={(event) => {
-                    const qty = parseInt(event.target.value) || 0
-                    updateAgendamentoField('pacote_items', Array(qty).fill(false))
-                  }}
-                />
-                <span className="text-xs text-white/50 self-center">itens no pacote</span>
-              </div>
-            </div>
-          </div>
         </div>
       </Modal>
     </div>
