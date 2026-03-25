@@ -593,7 +593,7 @@ export default function App() {
           next.pacote_items = []
         }
       }
-      if (field === 'status' && value === 'concluído') {
+      if (field === 'status' && value === 'concluido') {
         if (next.pacote_items && next.pacote_items.length > 0) {
           next.pacote_items = next.pacote_items.map(() => true)
         }
