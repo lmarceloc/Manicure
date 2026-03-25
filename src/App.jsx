@@ -138,6 +138,16 @@ const getPacoteStatus = (pacoteItems) => {
   return { completed, total: pacoteItems.length }
 }
 
+const getDefaultPackageQuantity = (serviceName) => {
+  if (!serviceName) return 0
+  const name = serviceName.toLowerCase()
+
+  if (name.includes('4 mãos e 2 pés')) return 6
+  if (name.includes('2maos e 2 pes') || name.includes('2 mãos e 2 pés')) return 4
+  if (name.includes('4 mãos')) return 4
+  return 0
+}
+
 const parseCurrencyNumber = (value) => {
   if (typeof value === 'number') return value
   const rawValue = String(value ?? '').trim()
@@ -574,6 +584,15 @@ export default function App() {
       if (field === 'usar_endereco_cliente' && value) {
         const cliente = clientes.find((item) => item.id === next.cliente_id)
         next.endereco_atendimento = cliente?.endereco || ''
+      }
+      if (field === 'servico_id') {
+        const servico = servicos.find((item) => item.id === value)
+        if (servico?.é_pacote) {
+          const defaultQty = getDefaultPackageQuantity(servico.nome)
+          next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
+        } else {
+          next.pacote_items = []
+        }
       }
       return next
     })
