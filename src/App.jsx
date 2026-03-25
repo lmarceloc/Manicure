@@ -1024,16 +1024,28 @@ export default function App() {
                                       </p>
                                       <div className="flex flex-wrap gap-1">
                                         {item.pacote_items.map((isCompleted, idx) => (
-                                          <span
+                                          <button
                                             key={idx}
-                                            className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${
+                                            type="button"
+                                            onClick={async () => {
+                                              const newItems = [...item.pacote_items]
+                                              newItems[idx] = !newItems[idx]
+                                              const response = await supabase
+                                                .from('agendamentos')
+                                                .update({ pacote_items: newItems })
+                                                .eq('id', item.id)
+                                              if (!response.error) {
+                                                await loadData()
+                                              }
+                                            }}
+                                            className={`h-6 w-6 rounded border flex items-center justify-center text-xs cursor-pointer transition ${
                                               isCompleted
-                                                ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
-                                                : 'bg-white/5 border-white/20 text-white/40'
+                                                ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold hover:bg-emerald-500/50'
+                                                : 'bg-white/5 border-white/20 text-white/40 hover:border-white/40'
                                             }`}
                                           >
                                             {isCompleted ? '✓' : '·'}
-                                          </span>
+                                          </button>
                                         ))}
                                       </div>
                                       {getPacoteStatus(item.pacote_items).completed === getPacoteStatus(item.pacote_items).total && getPacoteStatus(item.pacote_items).total > 0 && (
