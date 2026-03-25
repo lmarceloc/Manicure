@@ -142,11 +142,8 @@ const getDefaultPackageQuantity = (serviceName) => {
   if (!serviceName) return 0
   const name = serviceName.toLowerCase()
 
-  // Todos os serviços de pacote têm 4 checkboxes
-  if (name.includes('2maos e 2 pes') || name.includes('2 mãos e 2 pés') ||
-      name.includes('4 mãos e 2 pés') || name.includes('4 mãos')) {
-    return 4
-  }
+  if (name.includes('2maos e 2 pes') || name.includes('2 mãos e 2 pés')) return 2
+  if (name.includes('4 mãos e 2 pés') || name.includes('4 mãos')) return 4
   return 0
 }
 
@@ -609,8 +606,10 @@ export default function App() {
   }, [agendamentoForm, servicos])
 
   const saveAgendamento = async () => {
+    console.log('Salvando agendamento...', agendamentoForm)
     if (!agendamentoForm.cliente_id || !agendamentoForm.servico_id) {
       setError('Selecione cliente e serviço.')
+      console.log('Erro: cliente_id ou servico_id não preenchidos')
       return
     }
     const valorCobrado = parseCurrencyNumber(agendamentoForm.valor_cobrado)
