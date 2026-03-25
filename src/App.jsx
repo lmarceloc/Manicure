@@ -51,6 +51,7 @@ const createAgendamentoForm = (dateValue) => ({
   endereco_atendimento: '',
   observacoes: '',
   usar_endereco_cliente: true,
+  pacote_items: [],
 })
 
 const toLocalDateInput = (value) => {
@@ -129,6 +130,12 @@ const getServicoDuracao = (agendamento, servicos) => {
     servicos.find((item) => item.id === agendamento?.servico_id)?.duracao_minutos ??
     60
   )
+}
+
+const getPacoteStatus = (pacoteItems) => {
+  if (!pacoteItems || pacoteItems.length === 0) return { completed: 0, total: 0 }
+  const completed = pacoteItems.filter(Boolean).length
+  return { completed, total: pacoteItems.length }
 }
 
 const getAppointmentRange = (agendamento, servicos) => {
@@ -434,6 +441,7 @@ export default function App() {
       endereco_atendimento: agendamento.endereco_atendimento || '',
       observacoes: agendamento.observacoes || '',
       usar_endereco_cliente: false,
+      pacote_items: agendamento.pacote_items || [],
     })
     setAgendamentoModalOpen(true)
   }
@@ -501,6 +509,7 @@ export default function App() {
       endereco_atendimento: agendamentoForm.endereco_atendimento.trim(),
       status: agendamentoForm.status,
       observacoes: agendamentoForm.observacoes.trim() || null,
+      pacote_items: agendamentoForm.pacote_items || [],
     }
 
     const response = editingAgendamento
@@ -809,6 +818,35 @@ export default function App() {
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
                                   <p className="text-xs text-white/50">{item.endereco_atendimento}</p>
+                                  {item.servico?.valor && (
+                                    <p className="mt-2 text-sm font-semibold text-emerald-200">
+                                      {CURRENCY.format(item.servico.valor)}
+                                    </p>
+                                  )}
+                                  {item.pacote_items && item.pacote_items.length > 0 && (
+                                    <div className="mt-3 space-y-2">
+                                      <p className="text-xs font-semibold text-white/70">
+                                        PACOTE {getPacoteStatus(item.pacote_items).completed}/{getPacoteStatus(item.pacote_items).total}
+                                      </p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {item.pacote_items.map((isCompleted, idx) => (
+                                          <span
+                                            key={idx}
+                                            className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${
+                                              isCompleted
+                                                ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
+                                                : 'bg-white/5 border-white/20 text-white/40'
+                                            }`}
+                                          >
+                                            {isCompleted ? '✓' : '·'}
+                                          </span>
+                                        ))}
+                                      </div>
+                                      {getPacoteStatus(item.pacote_items).completed === getPacoteStatus(item.pacote_items).total && getPacoteStatus(item.pacote_items).total > 0 && (
+                                        <p className="text-xs text-emerald-200">Pacote concluído.</p>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex flex-col gap-3 md:items-end">
                                   <div className="flex flex-wrap items-center gap-3">
@@ -1374,6 +1412,49 @@ export default function App() {
               onChange={(event) => updateAgendamentoField('observacoes', event.target.value)}
               placeholder="Detalhes adicionais"
             />
+          </div>
+          <div>
+            <label className="label">Itens do pacote</label>
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {agendamentoForm.pacote_items && agendamentoForm.pacote_items.length > 0 ? (
+                  agendamentoForm.pacote_items.map((isCompleted, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => {
+                        const newItems = [...agendamentoForm.pacote_items]
+                        newItems[index] = !newItems[index]
+                        updateAgendamentoField('pacote_items', newItems)
+                      }}
+                      className={`h-10 w-10 rounded-lg border-2 flex items-center justify-center font-semibold transition ${
+                        isCompleted
+                          ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
+                          : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40'
+                      }`}
+                    >
+                      {isCompleted ? '✓' : index + 1}
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-sm text-white/50">Sem itens no pacote</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="20"
+                  className="input w-20"
+                  placeholder="Qtd"
+                  onChange={(event) => {
+                    const qty = parseInt(event.target.value) || 0
+                    updateAgendamentoField('pacote_items', Array(qty).fill(false))
+                  }}
+                />
+                <span className="text-xs text-white/50 self-center">itens no pacote</span>
+              </div>
+            </div>
           </div>
         </div>
       </Modal>
