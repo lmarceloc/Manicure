@@ -576,9 +576,31 @@ export default function App() {
   const updateAgendamentoField = (field, value) => {
     setAgendamentoForm((prev) => {
       const next = { ...prev, [field]: value }
-      if (field === 'cliente_id' && next.usar_endereco_cliente) {
-        const cliente = clientes.find((item) => item.id === value)
-        next.endereco_atendimento = cliente?.endereco || ''
+      if (field === 'cliente_id') {
+        if (next.usar_endereco_cliente) {
+          const cliente = clientes.find((item) => item.id === value)
+          next.endereco_atendimento = cliente?.endereco || ''
+        }
+        // Atualiza pacote_items com histórico do novo cliente
+        const servico = servicos.find((item) => item.id === next.servico_id)
+        if (servico?.é_pacote) {
+          const defaultQty = getDefaultPackageQuantity(servico.nome)
+          const lastPacote = agendamentos
+            .filter(
+              (a) =>
+                a.cliente_id === value &&
+                a.servico_id === next.servico_id &&
+                a.pacote_items &&
+                a.pacote_items.length > 0 &&
+                (!editingAgendamento || a.id !== editingAgendamento.id)
+            )
+            .sort((a, b) => new Date(b.data_hora_inicio) - new Date(a.data_hora_inicio))[0]
+          if (lastPacote) {
+            next.pacote_items = [...lastPacote.pacote_items]
+          } else {
+            next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
+          }
+        }
       }
       if (field === 'usar_endereco_cliente' && value) {
         const cliente = clientes.find((item) => item.id === next.cliente_id)
@@ -588,7 +610,22 @@ export default function App() {
         const servico = servicos.find((item) => item.id === value)
         if (servico?.é_pacote) {
           const defaultQty = getDefaultPackageQuantity(servico.nome)
-          next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
+          // Busca o último agendamento do mesmo cliente+serviço para herdar progresso do pacote
+          const lastPacote = agendamentos
+            .filter(
+              (a) =>
+                a.cliente_id === next.cliente_id &&
+                a.servico_id === value &&
+                a.pacote_items &&
+                a.pacote_items.length > 0 &&
+                (!editingAgendamento || a.id !== editingAgendamento.id)
+            )
+            .sort((a, b) => new Date(b.data_hora_inicio) - new Date(a.data_hora_inicio))[0]
+          if (lastPacote) {
+            next.pacote_items = [...lastPacote.pacote_items]
+          } else {
+            next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
+          }
         } else {
           next.pacote_items = []
         }
@@ -674,6 +711,25 @@ export default function App() {
     if (response.error) {
       setError('Não foi possível salvar o agendamento.')
       return
+    }
+
+    // Sincroniza pacote_items em agendamentos futuros do mesmo cliente+serviço
+    const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
+    if (servicoAtual?.é_pacote && agendamentoForm.pacote_items?.length > 0) {
+      const currentId = editingAgendamento?.id
+      const futureAgendamentos = agendamentos.filter(
+        (a) =>
+          a.cliente_id === agendamentoForm.cliente_id &&
+          a.servico_id === agendamentoForm.servico_id &&
+          a.id !== currentId &&
+          a.status !== 'concluido'
+      )
+      for (const a of futureAgendamentos) {
+        await supabase
+          .from('agendamentos')
+          .update({ pacote_items: agendamentoForm.pacote_items })
+          .eq('id', a.id)
+      }
     }
 
     if (editingAgendamento && timeChanged) {
