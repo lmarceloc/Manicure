@@ -400,14 +400,6 @@ export default function App() {
     })
   }, [agendamentos, periodoInicio, periodoFim])
 
-  const totalReceita = faturamentoFiltrado.reduce(
-    (total, item) => total + getValorAgendamento(item, servicos),
-    0
-  )
-
-  const ticketMedio =
-    faturamentoFiltrado.length > 0 ? totalReceita / faturamentoFiltrado.length : 0
-
   const servicosById = useMemo(() => {
     const map = new Map()
     servicos.forEach((item) => map.set(item.id, item))
@@ -431,6 +423,51 @@ export default function App() {
 
     return map
   }, [agendamentos, servicosById])
+
+  // Para cada agendamento concluído de pacote, calcula sua posição no ciclo (1-based)
+  // Valor só é cobrado quando a posição fecha o ciclo (posição % total === 0)
+  const pacoteOrdinalById = useMemo(() => {
+    const ordinals = new Map()
+    const counters = new Map()
+
+    // Ordenar por data para atribuir ordinal correto
+    const sorted = [...agendamentos]
+      .filter((a) => a.status === 'concluido')
+      .sort((a, b) => new Date(a.data_hora_inicio) - new Date(b.data_hora_inicio))
+
+    sorted.forEach((item) => {
+      if (!item.cliente_id || !item.servico_id) return
+      const servico = item.servico ?? servicosById.get(item.servico_id)
+      const totalPacote = getPacoteTotalByService(servico)
+      if (!totalPacote) return
+
+      const key = `${item.cliente_id}:${item.servico_id}`
+      const seq = (counters.get(key) || 0) + 1
+      counters.set(key, seq)
+      ordinals.set(item.id, { seq, totalPacote })
+    })
+
+    return ordinals
+  }, [agendamentos, servicosById])
+
+  const getValorFaturamento = (item) => {
+    const ordinal = pacoteOrdinalById.get(item.id)
+    if (ordinal) {
+      // Pacote: só conta o valor quando fecha o ciclo
+      if (ordinal.seq % ordinal.totalPacote !== 0) return 0
+    }
+    return getValorAgendamento(item, servicos)
+  }
+
+  const totalReceita = faturamentoFiltrado.reduce(
+    (total, item) => total + getValorFaturamento(item),
+    0
+  )
+
+  const atendimentosFaturados = faturamentoFiltrado.filter((item) => getValorFaturamento(item) > 0)
+
+  const ticketMedio =
+    atendimentosFaturados.length > 0 ? totalReceita / atendimentosFaturados.length : 0
 
   const resetClientForm = () => setClientForm(createClientForm())
   const resetServiceForm = () => setServiceForm(createServiceForm())
@@ -1389,7 +1426,10 @@ export default function App() {
                     </span>
                   </div>
                   <div className="mt-4 space-y-3">
-                    {faturamentoFiltrado.map((item) => (
+                    {faturamentoFiltrado.map((item) => {
+                      const valorFat = getValorFaturamento(item)
+                      const ordinal = pacoteOrdinalById.get(item.id)
+                      return (
                       <div
                         key={item.id}
                         className="glass-card flex flex-col gap-2 rounded-2xl px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -1402,12 +1442,18 @@ export default function App() {
                             {item.cliente?.nome_completo || 'Cliente'} ·{' '}
                             {item.servico?.nome || 'Serviço'}
                           </p>
+                          {ordinal ? (
+                            <p className="text-xs text-white/40">
+                              Pacote {((ordinal.seq - 1) % ordinal.totalPacote) + 1}/{ordinal.totalPacote}
+                            </p>
+                          ) : null}
                         </div>
-                        <p className="text-base font-semibold text-emerald-200">
-                          {CURRENCY.format(getValorAgendamento(item, servicos))}
+                        <p className={`text-base font-semibold ${valorFat > 0 ? 'text-emerald-200' : 'text-white/30'}`}>
+                          {valorFat > 0 ? CURRENCY.format(valorFat) : 'Pacote'}
                         </p>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               </section>
