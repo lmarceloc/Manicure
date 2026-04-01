@@ -147,6 +147,24 @@ const getDefaultPackageQuantity = (serviceName) => {
   return 0
 }
 
+// Constrói pacote_items a partir da contagem de atendimentos concluídos
+const buildPacoteItems = (totalSlots, completedCount) => {
+  if (totalSlots <= 0) return []
+  const inCycle = completedCount % totalSlots
+  const checked = inCycle === 0 && completedCount > 0 ? totalSlots : inCycle
+  return Array(totalSlots).fill(false).map((_, i) => i < checked)
+}
+
+const countCompletedPacote = (clienteId, servicoId, excludeId, agendamentos) => {
+  return agendamentos.filter(
+    (a) =>
+      a.cliente_id === clienteId &&
+      a.servico_id === servicoId &&
+      a.status === 'concluido' &&
+      a.id !== excludeId
+  ).length
+}
+
 const parseCurrencyNumber = (value) => {
   if (typeof value === 'number') return value
   const rawValue = String(value ?? '').trim()
@@ -558,6 +576,19 @@ export default function App() {
   const openEditAgendamento = (agendamento) => {
     const valorAgendamento = getValorAgendamento(agendamento, servicos)
     setEditingAgendamento(agendamento)
+    // Computa pacote_items a partir dos atendimentos concluídos reais
+    let pacoteItems = agendamento.pacote_items || []
+    const servico = servicos.find((s) => s.id === agendamento.servico_id)
+    const totalSlots = getPacoteTotalByService(servico)
+    if (totalSlots > 0 && agendamento.cliente_id && agendamento.servico_id) {
+      const completed = countCompletedPacote(
+        agendamento.cliente_id,
+        agendamento.servico_id,
+        agendamento.status === 'concluido' ? null : agendamento.id,
+        agendamentos
+      )
+      pacoteItems = buildPacoteItems(totalSlots, completed)
+    }
     setAgendamentoForm({
       cliente_id: agendamento.cliente_id || '',
       servico_id: agendamento.servico_id || '',
@@ -568,7 +599,7 @@ export default function App() {
       endereco_atendimento: agendamento.endereco_atendimento || '',
       observacoes: agendamento.observacoes || '',
       usar_endereco_cliente: false,
-      pacote_items: agendamento.pacote_items || [],
+      pacote_items: pacoteItems,
     })
     setAgendamentoModalOpen(true)
   }
@@ -581,24 +612,17 @@ export default function App() {
           const cliente = clientes.find((item) => item.id === value)
           next.endereco_atendimento = cliente?.endereco || ''
         }
-        // Atualiza pacote_items com histórico do novo cliente
+        // Atualiza pacote_items com base nos atendimentos concluídos reais
         const servico = servicos.find((item) => item.id === next.servico_id)
         if (servico?.é_pacote) {
-          const defaultQty = getDefaultPackageQuantity(servico.nome)
-          const lastPacote = agendamentos
-            .filter(
-              (a) =>
-                a.cliente_id === value &&
-                a.servico_id === next.servico_id &&
-                a.pacote_items &&
-                a.pacote_items.length > 0 &&
-                (!editingAgendamento || a.id !== editingAgendamento.id)
+          const totalSlots = getPacoteTotalByService(servico)
+          if (totalSlots > 0) {
+            const completed = countCompletedPacote(
+              value, next.servico_id, editingAgendamento?.id, agendamentos
             )
-            .sort((a, b) => new Date(b.data_hora_inicio) - new Date(a.data_hora_inicio))[0]
-          if (lastPacote) {
-            next.pacote_items = [...lastPacote.pacote_items]
+            next.pacote_items = buildPacoteItems(totalSlots, completed)
           } else {
-            next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
+            next.pacote_items = []
           }
         }
       }
@@ -609,36 +633,29 @@ export default function App() {
       if (field === 'servico_id') {
         const servico = servicos.find((item) => item.id === value)
         if (servico?.é_pacote) {
-          const defaultQty = getDefaultPackageQuantity(servico.nome)
-          // Busca o último agendamento do mesmo cliente+serviço para herdar progresso do pacote
-          const lastPacote = agendamentos
-            .filter(
-              (a) =>
-                a.cliente_id === next.cliente_id &&
-                a.servico_id === value &&
-                a.pacote_items &&
-                a.pacote_items.length > 0 &&
-                (!editingAgendamento || a.id !== editingAgendamento.id)
+          const totalSlots = getPacoteTotalByService(servico)
+          if (totalSlots > 0 && next.cliente_id) {
+            const completed = countCompletedPacote(
+              next.cliente_id, value, editingAgendamento?.id, agendamentos
             )
-            .sort((a, b) => new Date(b.data_hora_inicio) - new Date(a.data_hora_inicio))[0]
-          if (lastPacote) {
-            next.pacote_items = [...lastPacote.pacote_items]
+            next.pacote_items = buildPacoteItems(totalSlots, completed)
           } else {
+            const defaultQty = getDefaultPackageQuantity(servico.nome)
             next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
           }
         } else {
           next.pacote_items = []
         }
       }
-      if (field === 'status' && value === 'concluido') {
-        if (next.pacote_items && next.pacote_items.length > 0) {
-          // Marca apenas o próximo checkbox que está false
-          const firstFalseIndex = next.pacote_items.findIndex((item) => item === false)
-          if (firstFalseIndex !== -1) {
-            next.pacote_items = next.pacote_items.map((item, idx) =>
-              idx === firstFalseIndex ? true : item
-            )
-          }
+      if (field === 'status') {
+        const servico = servicos.find((item) => item.id === next.servico_id)
+        const totalSlots = getPacoteTotalByService(servico)
+        if (totalSlots > 0 && next.cliente_id && next.servico_id) {
+          const completed = countCompletedPacote(
+            next.cliente_id, next.servico_id, editingAgendamento?.id, agendamentos
+          )
+          // +1 se está marcando como concluído agora
+          next.pacote_items = buildPacoteItems(totalSlots, completed + (value === 'concluido' ? 1 : 0))
         }
       }
       return next
@@ -715,8 +732,18 @@ export default function App() {
 
     // Sincroniza pacote_items em agendamentos futuros do mesmo cliente+serviço
     const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
-    if (servicoAtual?.é_pacote && agendamentoForm.pacote_items?.length > 0) {
+    const totalSlots = getPacoteTotalByService(servicoAtual)
+    if (servicoAtual?.é_pacote && totalSlots > 0) {
       const currentId = editingAgendamento?.id
+      // Conta concluídos incluindo o atual se estiver sendo concluído
+      const completedNow = agendamentos.filter(
+        (a) =>
+          a.cliente_id === agendamentoForm.cliente_id &&
+          a.servico_id === agendamentoForm.servico_id &&
+          a.status === 'concluido' &&
+          a.id !== currentId
+      ).length + (agendamentoForm.status === 'concluido' ? 1 : 0)
+      const syncItems = buildPacoteItems(totalSlots, completedNow)
       const futureAgendamentos = agendamentos.filter(
         (a) =>
           a.cliente_id === agendamentoForm.cliente_id &&
@@ -727,7 +754,7 @@ export default function App() {
       for (const a of futureAgendamentos) {
         await supabase
           .from('agendamentos')
-          .update({ pacote_items: agendamentoForm.pacote_items })
+          .update({ pacote_items: syncItems })
           .eq('id', a.id)
       }
     }
@@ -1084,13 +1111,16 @@ export default function App() {
                                   <p className="mt-2 text-sm font-semibold text-emerald-200">
                                     {CURRENCY.format(getValorAgendamento(item, servicos))}
                                   </p>
-                                  {item.pacote_items && item.pacote_items.length > 0 && (
+                                  {totalPacote > 0 && (() => {
+                                    const computedItems = buildPacoteItems(totalPacote, totalConcluidosPacote)
+                                    const { completed, total } = getPacoteStatus(computedItems)
+                                    return (
                                     <div className="mt-3 space-y-2">
                                       <p className="text-xs font-semibold text-white/70">
-                                        PACOTE {getPacoteStatus(item.pacote_items).completed}/{getPacoteStatus(item.pacote_items).total}
+                                        PACOTE {completed}/{total}
                                       </p>
                                       <div className="flex flex-wrap gap-1">
-                                        {item.pacote_items.map((isCompleted, idx) => (
+                                        {computedItems.map((isCompleted, idx) => (
                                           <span
                                             key={idx}
                                             className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${
@@ -1103,11 +1133,12 @@ export default function App() {
                                           </span>
                                         ))}
                                       </div>
-                                      {getPacoteStatus(item.pacote_items).completed === getPacoteStatus(item.pacote_items).total && getPacoteStatus(item.pacote_items).total > 0 && (
+                                      {completed === total && total > 0 && (
                                         <p className="text-xs text-emerald-200">Pacote concluído.</p>
                                       )}
                                     </div>
-                                  )}
+                                    )
+                                  })()}
                                 </div>
                                 <div className="flex flex-col gap-3 md:items-end">
                                   <div className="flex flex-wrap items-center gap-3">
