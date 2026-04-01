@@ -454,7 +454,7 @@ export default function App() {
     const ordinal = pacoteOrdinalById.get(item.id)
     if (ordinal) {
       // Pacote: só conta o valor quando fecha o ciclo
-      if (ordinal.seq % ordinal.totalPacote !== 0) return 0
+      if ((ordinal.seq - 1) % ordinal.totalPacote !== 0) return 0
     }
     return getValorAgendamento(item, servicos)
   }
