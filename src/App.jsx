@@ -148,10 +148,14 @@ const getDefaultPackageQuantity = (serviceName) => {
 }
 
 // Constrói pacote_items a partir da contagem de atendimentos concluídos
-const buildPacoteItems = (totalSlots, completedCount) => {
+const buildPacoteItems = (totalSlots, completedCount, isConcluidoNow = false) => {
   if (totalSlots <= 0) return []
   const inCycle = completedCount % totalSlots
-  const checked = inCycle === 0 && completedCount > 0 ? totalSlots : inCycle
+  // Se completedCount é um múltiplo de totalSlots, inCycle será 0.
+  // Se estamos marcando como concluído agora, queremos mostrar "Cheio" (ex: 4/4).
+  // Se NÃO estamos marcando como concluído (ex: um novo agendamento pendente após o ciclo),
+  // inCycle=0 significa que estamos no início de um novo ciclo (0/4).
+  const checked = (inCycle === 0 && completedCount > 0 && isConcluidoNow) ? totalSlots : inCycle
   return Array(totalSlots).fill(false).map((_, i) => i < checked)
 }
 
@@ -183,8 +187,8 @@ const getValorAgendamento = (agendamento, servicos) => {
 
   const valorServico = Number(
     agendamento?.servico?.valor ??
-      servicos.find((item) => item.id === agendamento?.servico_id)?.valor ??
-      0
+    servicos.find((item) => item.id === agendamento?.servico_id)?.valor ??
+    0
   )
   return Number.isFinite(valorServico) ? valorServico : 0
 }
@@ -238,9 +242,9 @@ const getPacoteTotalByService = (servico) => {
 
   const explicitTotal = Number(
     servico?.pacote_total ??
-      servico?.pacote_quantidade ??
-      servico?.quantidade_pacote ??
-      servico?.qtd_pacote
+    servico?.pacote_quantidade ??
+    servico?.quantidade_pacote ??
+    servico?.qtd_pacote
   )
   if (Number.isFinite(explicitTotal) && explicitTotal > 1) return explicitTotal
 
@@ -621,10 +625,12 @@ export default function App() {
       const completed = countCompletedPacote(
         agendamento.cliente_id,
         agendamento.servico_id,
-        agendamento.status === 'concluido' ? null : agendamento.id,
+        agendamento.id,
         agendamentos
       )
-      pacoteItems = buildPacoteItems(totalSlots, completed)
+      const isConcluido = agendamento.status === 'concluido'
+      const totalCount = completed + (isConcluido ? 1 : 0)
+      pacoteItems = buildPacoteItems(totalSlots, totalCount, isConcluido)
     }
     setAgendamentoForm({
       cliente_id: agendamento.cliente_id || '',
@@ -657,7 +663,9 @@ export default function App() {
             const completed = countCompletedPacote(
               value, next.servico_id, editingAgendamento?.id, agendamentos
             )
-            next.pacote_items = buildPacoteItems(totalSlots, completed)
+            const isConcluido = next.status === 'concluido'
+            const totalCount = completed + (isConcluido ? 1 : 0)
+            next.pacote_items = buildPacoteItems(totalSlots, totalCount, isConcluido)
           } else {
             next.pacote_items = []
           }
@@ -675,10 +683,13 @@ export default function App() {
             const completed = countCompletedPacote(
               next.cliente_id, value, editingAgendamento?.id, agendamentos
             )
-            next.pacote_items = buildPacoteItems(totalSlots, completed)
+            const isConcluido = next.status === 'concluido'
+            const totalCount = completed + (isConcluido ? 1 : 0)
+            next.pacote_items = buildPacoteItems(totalSlots, totalCount, isConcluido)
           } else {
             const defaultQty = getDefaultPackageQuantity(servico.nome)
-            next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
+            const isConcluido = next.status === 'concluido'
+            next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false).map((_, i) => i < (isConcluido ? 1 : 0)) : []
           }
         } else {
           next.pacote_items = []
@@ -691,8 +702,9 @@ export default function App() {
           const completed = countCompletedPacote(
             next.cliente_id, next.servico_id, editingAgendamento?.id, agendamentos
           )
-          // +1 se está marcando como concluído agora
-          next.pacote_items = buildPacoteItems(totalSlots, completed + (value === 'concluido' ? 1 : 0))
+          const isConcluido = value === 'concluido'
+          const totalCount = completed + (isConcluido ? 1 : 0)
+          next.pacote_items = buildPacoteItems(totalSlots, totalCount, isConcluido)
         }
       }
       return next
@@ -741,9 +753,9 @@ export default function App() {
     const inicio = combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
     const fim = servico
       ? new Date(
-          new Date(`${agendamentoForm.data}T${agendamentoForm.hora_inicio}:00`).getTime() +
-            servico.duracao_minutos * 60000
-        ).toISOString()
+        new Date(`${agendamentoForm.data}T${agendamentoForm.hora_inicio}:00`).getTime() +
+        servico.duracao_minutos * 60000
+      ).toISOString()
       : combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
 
     const payload = {
@@ -771,16 +783,15 @@ export default function App() {
     const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
     const totalSlots = getPacoteTotalByService(servicoAtual)
     if (servicoAtual?.é_pacote && totalSlots > 0) {
-      const currentId = editingAgendamento?.id
-      // Conta concluídos incluindo o atual se estiver sendo concluído
+      const isConcluido = agendamentoForm.status === 'concluido'
       const completedNow = agendamentos.filter(
         (a) =>
           a.cliente_id === agendamentoForm.cliente_id &&
           a.servico_id === agendamentoForm.servico_id &&
           a.status === 'concluido' &&
           a.id !== currentId
-      ).length + (agendamentoForm.status === 'concluido' ? 1 : 0)
-      const syncItems = buildPacoteItems(totalSlots, completedNow)
+      ).length + (isConcluido ? 1 : 0)
+
       const futureAgendamentos = agendamentos.filter(
         (a) =>
           a.cliente_id === agendamentoForm.cliente_id &&
@@ -788,6 +799,11 @@ export default function App() {
           a.id !== currentId &&
           a.status !== 'concluido'
       )
+
+      // Para atendimentos futuros (pendentes), nunca passamos isConcluidoNow=true
+      // Isso garante que se completedNow=4, os futuros mostrem 0/4
+      const syncItems = buildPacoteItems(totalSlots, completedNow, false)
+
       for (const a of futureAgendamentos) {
         await supabase
           .from('agendamentos')
@@ -908,11 +924,10 @@ export default function App() {
                   key={item.id}
                   type="button"
                   onClick={() => setActiveTab(item.id)}
-                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
-                    activeTab === item.id
+                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${activeTab === item.id
                       ? 'bg-white/20 text-white shadow-glow'
                       : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
+                    }`}
                 >
                   {item.label}
                 </button>
@@ -1029,9 +1044,8 @@ export default function App() {
                               setSelectedDate(dayKey)
                               setWeekFocusDate(dayKey)
                             }}
-                            className={`glass-card min-w-[220px] snap-start rounded-2xl p-4 text-left transition ${
-                              isFocused ? 'border border-sky-300/50 bg-white/15' : ''
-                            }`}
+                            className={`glass-card min-w-[220px] snap-start rounded-2xl p-4 text-left transition ${isFocused ? 'border border-sky-300/50 bg-white/15' : ''
+                              }`}
                           >
                             <p className="text-sm font-semibold">{formatDate(dayKey)}</p>
                             <p className="text-xs text-white/50">{dayItems.length} ocupados</p>
@@ -1152,28 +1166,27 @@ export default function App() {
                                     const computedItems = buildPacoteItems(totalPacote, totalConcluidosPacote)
                                     const { completed, total } = getPacoteStatus(computedItems)
                                     return (
-                                    <div className="mt-3 space-y-2">
-                                      <p className="text-xs font-semibold text-white/70">
-                                        PACOTE {completed}/{total}
-                                      </p>
-                                      <div className="flex flex-wrap gap-1">
-                                        {computedItems.map((isCompleted, idx) => (
-                                          <span
-                                            key={idx}
-                                            className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${
-                                              isCompleted
-                                                ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
-                                                : 'bg-white/5 border-white/20 text-white/40'
-                                            }`}
-                                          >
-                                            {isCompleted ? '✓' : '·'}
-                                          </span>
-                                        ))}
+                                      <div className="mt-3 space-y-2">
+                                        <p className="text-xs font-semibold text-white/70">
+                                          PACOTE {completed}/{total}
+                                        </p>
+                                        <div className="flex flex-wrap gap-1">
+                                          {computedItems.map((isCompleted, idx) => (
+                                            <span
+                                              key={idx}
+                                              className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${isCompleted
+                                                  ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
+                                                  : 'bg-white/5 border-white/20 text-white/40'
+                                                }`}
+                                            >
+                                              {isCompleted ? '✓' : '·'}
+                                            </span>
+                                          ))}
+                                        </div>
+                                        {completed === total && total > 0 && (
+                                          <p className="text-xs text-emerald-200">Pacote concluído.</p>
+                                        )}
                                       </div>
-                                      {completed === total && total > 0 && (
-                                        <p className="text-xs text-emerald-200">Pacote concluído.</p>
-                                      )}
-                                    </div>
                                     )
                                   })()}
                                 </div>
@@ -1345,11 +1358,10 @@ export default function App() {
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <span
-                            className={`badge ${
-                              servico.ativo
+                            className={`badge ${servico.ativo
                                 ? 'bg-emerald-300/15 text-emerald-200'
                                 : 'bg-white/10 text-white/60'
-                            }`}
+                              }`}
                           >
                             {servico.ativo ? 'Ativo' : 'Inativo'}
                           </span>
@@ -1430,28 +1442,28 @@ export default function App() {
                       const valorFat = getValorFaturamento(item)
                       const ordinal = pacoteOrdinalById.get(item.id)
                       return (
-                      <div
-                        key={item.id}
-                        className="glass-card flex flex-col gap-2 rounded-2xl px-4 py-3 md:flex-row md:items-center md:justify-between"
-                      >
-                        <div>
-                          <p className="text-sm text-white/60">
-                            {formatDate(item.data_hora_inicio)} · {formatTime(item.data_hora_inicio)}
-                          </p>
-                          <p className="text-base font-semibold">
-                            {item.cliente?.nome_completo || 'Cliente'} ·{' '}
-                            {item.servico?.nome || 'Serviço'}
-                          </p>
-                          {ordinal ? (
-                            <p className="text-xs text-white/40">
-                              Pacote {((ordinal.seq - 1) % ordinal.totalPacote) + 1}/{ordinal.totalPacote}
+                        <div
+                          key={item.id}
+                          className="glass-card flex flex-col gap-2 rounded-2xl px-4 py-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <p className="text-sm text-white/60">
+                              {formatDate(item.data_hora_inicio)} · {formatTime(item.data_hora_inicio)}
                             </p>
-                          ) : null}
+                            <p className="text-base font-semibold">
+                              {item.cliente?.nome_completo || 'Cliente'} ·{' '}
+                              {item.servico?.nome || 'Serviço'}
+                            </p>
+                            {ordinal ? (
+                              <p className="text-xs text-white/40">
+                                Pacote {((ordinal.seq - 1) % ordinal.totalPacote) + 1}/{ordinal.totalPacote}
+                              </p>
+                            ) : null}
+                          </div>
+                          <p className={`text-base font-semibold ${valorFat > 0 ? 'text-emerald-200' : 'text-white/30'}`}>
+                            {valorFat > 0 ? CURRENCY.format(valorFat) : 'Pacote'}
+                          </p>
                         </div>
-                        <p className={`text-base font-semibold ${valorFat > 0 ? 'text-emerald-200' : 'text-white/30'}`}>
-                          {valorFat > 0 ? CURRENCY.format(valorFat) : 'Pacote'}
-                        </p>
-                      </div>
                       )
                     })}
                   </div>
@@ -1489,11 +1501,10 @@ export default function App() {
                     setActiveTab(item.id)
                     setDrawerOpen(false)
                   }}
-                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
-                    activeTab === item.id
+                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${activeTab === item.id
                       ? 'bg-white/20 text-white shadow-glow'
                       : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
+                    }`}
                 >
                   {item.label}
                 </button>
@@ -1521,12 +1532,12 @@ export default function App() {
               <span />
             )}
             <div className="flex items-center gap-3">
-            <button type="button" className="btn-outline" onClick={() => setClientModalOpen(false)}>
-              Cancelar
-            </button>
-            <button type="button" className="btn-primary" onClick={saveClient}>
-              Salvar
-            </button>
+              <button type="button" className="btn-outline" onClick={() => setClientModalOpen(false)}>
+                Cancelar
+              </button>
+              <button type="button" className="btn-primary" onClick={saveClient}>
+                Salvar
+              </button>
             </div>
           </div>
         }
