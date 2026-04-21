@@ -312,6 +312,7 @@ export default function App() {
   const [rescheduleTimes, setRescheduleTimes] = useState({})
   const [rescheduleLocks, setRescheduleLocks] = useState({})
   const [editLocks, setEditLocks] = useState({})
+  const [savingAgendamento, setSavingAgendamento] = useState(false)
   const weekScrollRef = useRef(null)
 
   const [periodoInicio, setPeriodoInicio] = useState(() => {
@@ -720,106 +721,116 @@ export default function App() {
   }, [agendamentoForm, servicos])
 
   const saveAgendamento = async () => {
-    console.log('Salvando agendamento...', agendamentoForm)
-    if (!agendamentoForm.cliente_id || !agendamentoForm.servico_id) {
-      setError('Selecione cliente e serviço.')
-      console.log('Erro: cliente_id ou servico_id não preenchidos')
-      return
-    }
-    const valorCobrado = parseCurrencyNumber(agendamentoForm.valor_cobrado)
-    if (!Number.isFinite(valorCobrado) || valorCobrado < 0) {
-      setError('Informe um valor válido para o atendimento.')
-      return
-    }
-    if (!agendamentoForm.data || !agendamentoForm.hora_inicio) {
-      setError('Informe data e hora de início.')
-      return
-    }
-    if (!agendamentoForm.endereco_atendimento.trim()) {
-      setError('Informe o endereço do atendimento.')
-      return
-    }
+    if (savingAgendamento) return
+    setSavingAgendamento(true)
 
-    const servico = servicos.find((item) => item.id === agendamentoForm.servico_id)
-    const originalDate = editingAgendamento
-      ? toLocalDateInput(editingAgendamento.data_hora_inicio)
-      : null
-    const originalTime = editingAgendamento
-      ? toLocalTimeInput(editingAgendamento.data_hora_inicio)
-      : null
-    const timeChanged =
-      editingAgendamento &&
-      (originalDate !== agendamentoForm.data || originalTime !== agendamentoForm.hora_inicio)
-    const inicio = combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
-    const fim = servico
-      ? new Date(
-        new Date(`${agendamentoForm.data}T${agendamentoForm.hora_inicio}:00`).getTime() +
-        servico.duracao_minutos * 60000
-      ).toISOString()
-      : combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
-
-    const payload = {
-      cliente_id: agendamentoForm.cliente_id,
-      servico_id: agendamentoForm.servico_id,
-      valor_cobrado: valorCobrado,
-      data_hora_inicio: inicio,
-      data_hora_fim: fim,
-      endereco_atendimento: agendamentoForm.endereco_atendimento.trim(),
-      status: agendamentoForm.status,
-      observacoes: agendamentoForm.observacoes.trim() || null,
-      pacote_items: agendamentoForm.pacote_items || [],
-    }
-
-    const response = editingAgendamento
-      ? await supabase.from('agendamentos').update(payload).eq('id', editingAgendamento.id)
-      : await supabase.from('agendamentos').insert(payload)
-
-    if (response.error) {
-      setError('Não foi possível salvar o agendamento.')
-      return
-    }
-
-    // Sincroniza pacote_items em agendamentos futuros do mesmo cliente+serviço
-    const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
-    const totalSlots = getPacoteTotalByService(servicoAtual)
-    if (servicoAtual?.é_pacote && totalSlots > 0) {
-      const isConcluido = agendamentoForm.status === 'concluido'
-      const completedNow = agendamentos.filter(
-        (a) =>
-          a.cliente_id === agendamentoForm.cliente_id &&
-          a.servico_id === agendamentoForm.servico_id &&
-          a.status === 'concluido' &&
-          a.id !== currentId
-      ).length + (isConcluido ? 1 : 0)
-
-      const futureAgendamentos = agendamentos.filter(
-        (a) =>
-          a.cliente_id === agendamentoForm.cliente_id &&
-          a.servico_id === agendamentoForm.servico_id &&
-          a.id !== currentId &&
-          a.status !== 'concluido'
-      )
-
-      // Para atendimentos futuros (pendentes), nunca passamos isConcluidoNow=true
-      // Isso garante que se completedNow=4, os futuros mostrem 0/4
-      const syncItems = buildPacoteItems(totalSlots, completedNow, false)
-
-      for (const a of futureAgendamentos) {
-        await supabase
-          .from('agendamentos')
-          .update({ pacote_items: syncItems })
-          .eq('id', a.id)
+    try {
+      console.log('Salvando agendamento...', agendamentoForm)
+      if (!agendamentoForm.cliente_id || !agendamentoForm.servico_id) {
+        setError('Selecione cliente e serviço.')
+        console.log('Erro: cliente_id ou servico_id não preenchidos')
+        return
       }
-    }
+      const valorCobrado = agendamentoForm.valor_cobrado
+        ? parseCurrencyNumber(agendamentoForm.valor_cobrado)
+        : null
+      if (agendamentoForm.valor_cobrado && (!Number.isFinite(valorCobrado) || valorCobrado < 0)) {
+        setError('Informe um valor válido para o atendimento.')
+        return
+      }
+      if (!agendamentoForm.data || !agendamentoForm.hora_inicio) {
+        setError('Informe data e hora de início.')
+        return
+      }
+      if (!agendamentoForm.endereco_atendimento.trim()) {
+        setError('Informe o endereço do atendimento.')
+        return
+      }
 
-    if (editingAgendamento && timeChanged) {
-      setEditLocks((prev) => ({ ...prev, [editingAgendamento.id]: true }))
-      setRescheduleLocks((prev) => ({ ...prev, [editingAgendamento.id]: false }))
-    }
+      const servico = servicos.find((item) => item.id === agendamentoForm.servico_id)
+      const originalDate = editingAgendamento
+        ? toLocalDateInput(editingAgendamento.data_hora_inicio)
+        : null
+      const originalTime = editingAgendamento
+        ? toLocalTimeInput(editingAgendamento.data_hora_inicio)
+        : null
+      const timeChanged =
+        editingAgendamento &&
+        (originalDate !== agendamentoForm.data || originalTime !== agendamentoForm.hora_inicio)
+      const inicio = combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
+      const fim = servico
+        ? new Date(
+          new Date(`${agendamentoForm.data}T${agendamentoForm.hora_inicio}:00`).getTime() +
+          servico.duracao_minutos * 60000
+        ).toISOString()
+        : combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
 
-    setAgendamentoModalOpen(false)
-    resetAgendamentoForm()
-    await loadData()
+      const payload = {
+        cliente_id: agendamentoForm.cliente_id,
+        servico_id: agendamentoForm.servico_id,
+        valor_cobrado: valorCobrado,
+        data_hora_inicio: inicio,
+        data_hora_fim: fim,
+        endereco_atendimento: agendamentoForm.endereco_atendimento.trim(),
+        status: agendamentoForm.status,
+        observacoes: agendamentoForm.observacoes.trim() || null,
+        pacote_items: agendamentoForm.pacote_items || [],
+      }
+
+      const response = editingAgendamento
+        ? await supabase.from('agendamentos').update(payload).eq('id', editingAgendamento.id)
+        : await supabase.from('agendamentos').insert(payload)
+
+      if (response.error) {
+        setError('Não foi possível salvar o agendamento.')
+        return
+      }
+
+      // Sincroniza pacote_items em agendamentos futuros do mesmo cliente+serviço
+      const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
+      const totalSlots = getPacoteTotalByService(servicoAtual)
+      if (servicoAtual?.é_pacote && totalSlots > 0) {
+        const isConcluido = agendamentoForm.status === 'concluido'
+        const completedNow = agendamentos.filter(
+          (a) =>
+            a.cliente_id === agendamentoForm.cliente_id &&
+            a.servico_id === agendamentoForm.servico_id &&
+            a.status === 'concluido' &&
+            a.id !== editingAgendamento?.id
+        ).length + (isConcluido ? 1 : 0)
+
+        const futureAgendamentos = agendamentos.filter(
+          (a) =>
+            a.cliente_id === agendamentoForm.cliente_id &&
+            a.servico_id === agendamentoForm.servico_id &&
+            a.id !== editingAgendamento?.id &&
+            a.status !== 'concluido'
+        )
+
+        // Para atendimentos futuros (pendentes), nunca passamos isConcluidoNow=true
+        // Isso garante que se completedNow=4, os futuros mostrem 0/4
+        const syncItems = buildPacoteItems(totalSlots, completedNow, false)
+
+        for (const a of futureAgendamentos) {
+          await supabase
+            .from('agendamentos')
+            .update({ pacote_items: syncItems })
+            .eq('id', a.id)
+        }
+      }
+
+      if (editingAgendamento && timeChanged) {
+        setEditLocks((prev) => ({ ...prev, [editingAgendamento.id]: true }))
+        setRescheduleLocks((prev) => ({ ...prev, [editingAgendamento.id]: false }))
+      }
+
+      setError('')
+      setAgendamentoModalOpen(false)
+      resetAgendamentoForm()
+      await loadData()
+    } finally {
+      setSavingAgendamento(false)
+    }
   }
 
   const deleteAgendamento = async () => {
