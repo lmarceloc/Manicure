@@ -767,8 +767,6 @@ export default function App() {
       }
 
       // Sincroniza apenas o próximo agendamento de pacote quando o ciclo fecha
-      const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
-      const totalSlots = getPacoteTotalByService(servicoAtual)
       if (servicoAtual?.é_pacote && totalSlots > 0) {
         const isConcluido = agendamentoForm.status === 'concluido'
         if (isConcluido) {
