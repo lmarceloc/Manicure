@@ -618,21 +618,6 @@ export default function App() {
   const openEditAgendamento = (agendamento) => {
     const valorAgendamento = getValorAgendamento(agendamento, servicos)
     setEditingAgendamento(agendamento)
-    // Computa pacote_items a partir dos atendimentos concluídos reais
-    let pacoteItems = agendamento.pacote_items || []
-    const servico = servicos.find((s) => s.id === agendamento.servico_id)
-    const totalSlots = getPacoteTotalByService(servico)
-    if (totalSlots > 0 && agendamento.cliente_id && agendamento.servico_id) {
-      const completed = countCompletedPacote(
-        agendamento.cliente_id,
-        agendamento.servico_id,
-        agendamento.id,
-        agendamentos
-      )
-      const isConcluido = agendamento.status === 'concluido'
-      const totalCount = completed + (isConcluido ? 1 : 0)
-      pacoteItems = buildPacoteItems(totalSlots, totalCount, isConcluido)
-    }
     setAgendamentoForm({
       cliente_id: agendamento.cliente_id || '',
       servico_id: agendamento.servico_id || '',
@@ -643,7 +628,7 @@ export default function App() {
       endereco_atendimento: agendamento.endereco_atendimento || '',
       observacoes: agendamento.observacoes || '',
       usar_endereco_cliente: false,
-      pacote_items: pacoteItems,
+      pacote_items: agendamento.pacote_items || [],
     })
     setAgendamentoModalOpen(true)
   }
@@ -656,56 +641,18 @@ export default function App() {
           const cliente = clientes.find((item) => item.id === value)
           next.endereco_atendimento = cliente?.endereco || ''
         }
-        // Atualiza pacote_items com base nos atendimentos concluídos reais
-        const servico = servicos.find((item) => item.id === next.servico_id)
-        if (servico?.é_pacote) {
-          const totalSlots = getPacoteTotalByService(servico)
-          if (totalSlots > 0) {
-            const completed = countCompletedPacote(
-              value, next.servico_id, editingAgendamento?.id, agendamentos
-            )
-            const isConcluido = next.status === 'concluido'
-            const totalCount = completed + (isConcluido ? 1 : 0)
-            next.pacote_items = buildPacoteItems(totalSlots, totalCount, isConcluido)
-          } else {
-            next.pacote_items = []
-          }
-        }
       }
       if (field === 'usar_endereco_cliente' && value) {
         const cliente = clientes.find((item) => item.id === next.cliente_id)
         next.endereco_atendimento = cliente?.endereco || ''
       }
-      if (field === 'servico_id') {
+      if (field === 'servico_id' && !editingAgendamento) {
         const servico = servicos.find((item) => item.id === value)
         if (servico?.é_pacote) {
-          const totalSlots = getPacoteTotalByService(servico)
-          if (totalSlots > 0 && next.cliente_id) {
-            const completed = countCompletedPacote(
-              next.cliente_id, value, editingAgendamento?.id, agendamentos
-            )
-            const isConcluido = next.status === 'concluido'
-            const totalCount = completed + (isConcluido ? 1 : 0)
-            next.pacote_items = buildPacoteItems(totalSlots, totalCount, isConcluido)
-          } else {
-            const defaultQty = getDefaultPackageQuantity(servico.nome)
-            const isConcluido = next.status === 'concluido'
-            next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false).map((_, i) => i < (isConcluido ? 1 : 0)) : []
-          }
+          const defaultQty = getDefaultPackageQuantity(servico.nome)
+          next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
         } else {
           next.pacote_items = []
-        }
-      }
-      if (field === 'status') {
-        const servico = servicos.find((item) => item.id === next.servico_id)
-        const totalSlots = getPacoteTotalByService(servico)
-        if (totalSlots > 0 && next.cliente_id && next.servico_id) {
-          const completed = countCompletedPacote(
-            next.cliente_id, next.servico_id, editingAgendamento?.id, agendamentos
-          )
-          const isConcluido = value === 'concluido'
-          const totalCount = completed + (isConcluido ? 1 : 0)
-          next.pacote_items = buildPacoteItems(totalSlots, totalCount, isConcluido)
         }
       }
       return next
@@ -816,6 +763,41 @@ export default function App() {
             .from('agendamentos')
             .update({ pacote_items: syncItems })
             .eq('id', a.id)
+        }
+      }
+
+      // Sincroniza apenas o próximo agendamento de pacote quando o ciclo fecha
+      const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
+      const totalSlots = getPacoteTotalByService(servicoAtual)
+      if (servicoAtual?.é_pacote && totalSlots > 0) {
+        const isConcluido = agendamentoForm.status === 'concluido'
+        if (isConcluido) {
+          const completedCount = agendamentos.filter(
+            (a) =>
+              a.cliente_id === agendamentoForm.cliente_id &&
+              a.servico_id === agendamentoForm.servico_id &&
+              a.status === 'concluido' &&
+              a.id !== editingAgendamento?.id
+          ).length + 1
+
+          // Se fechou o ciclo, zera o próximo
+          if (completedCount % totalSlots === 0) {
+            const nextAgendamento = agendamentos.find(
+              (a) =>
+                a.cliente_id === agendamentoForm.cliente_id &&
+                a.servico_id === agendamentoForm.servico_id &&
+                a.id !== editingAgendamento?.id &&
+                a.status !== 'concluido' &&
+                new Date(a.data_hora_inicio) > new Date(editingAgendamento?.data_hora_inicio || 0)
+            )
+
+            if (nextAgendamento) {
+              await supabase
+                .from('agendamentos')
+                .update({ pacote_items: Array(totalSlots).fill(false) })
+                .eq('id', nextAgendamento.id)
+            }
+          }
         }
       }
 
