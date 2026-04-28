@@ -667,6 +667,74 @@ export default function App() {
     return formatTime(end)
   }, [agendamentoForm, servicos])
 
+  const getActivePacoteAgendamento = async (clienteId, servicoId) => {
+    const { data, error } = await supabase
+      .from('pacote_agendamentos')
+      .select('*')
+      .eq('agendamento_id', clienteId === 'temp' ? 'temp' : clienteId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.error('Erro ao buscar pacote_agendamentos:', error)
+      return null
+    }
+    return data?.[0] || null
+  }
+
+  const getLastPacoteForClient = async (clienteId, servicoId) => {
+    const { data, error } = await supabase
+      .from('pacote_agendamentos')
+      .select(`
+        *,
+        agendamento:agendamentos(
+          cliente_id,
+          servico_id,
+          status
+        )
+      `)
+      .eq('agendamento.cliente_id', clienteId)
+      .eq('agendamento.servico_id', servicoId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.error('Erro ao buscar último pacote:', error)
+      return null
+    }
+    return data?.[0] || null
+  }
+
+  const markNextPacoteItem = async (pacoteId) => {
+    const { data: pacote, error: fetchError } = await supabase
+      .from('pacote_agendamentos')
+      .select('*')
+      .eq('id', pacoteId)
+      .single()
+
+    if (fetchError || !pacote) {
+      console.error('Erro ao buscar pacote:', fetchError)
+      return
+    }
+
+    const items = [pacote.item_1, pacote.item_2, pacote.item_3, pacote.item_4]
+    const nextIndex = items.findIndex((item) => !item)
+
+    if (nextIndex !== -1) {
+      const updatePayload = {}
+      updatePayload[`item_${nextIndex + 1}`] = true
+
+      const { error: updateError } = await supabase
+        .from('pacote_agendamentos')
+        .update(updatePayload)
+        .eq('id', pacoteId)
+
+      if (updateError) {
+        console.error('Erro ao atualizar item do pacote:', updateError)
+      }
+    }
+  }
+
   const saveAgendamento = async () => {
     if (savingAgendamento) return
     setSavingAgendamento(true)
@@ -724,17 +792,60 @@ export default function App() {
         pacote_items: agendamentoForm.pacote_items || [],
       }
 
-      const response = editingAgendamento
-        ? await supabase.from('agendamentos').update(payload).eq('id', editingAgendamento.id)
-        : await supabase.from('agendamentos').insert(payload)
+      let agendamentoId
+      if (editingAgendamento) {
+        const response = await supabase.from('agendamentos').update(payload).eq('id', editingAgendamento.id)
+        if (response.error) {
+          setError('Não foi possível salvar o agendamento.')
+          return
+        }
+        agendamentoId = editingAgendamento.id
+      } else {
+        const response = await supabase.from('agendamentos').insert(payload).select()
+        if (response.error) {
+          setError('Não foi possível salvar o agendamento.')
+          return
+        }
+        agendamentoId = response.data?.[0]?.id
+      }
 
-      if (response.error) {
-        setError('Não foi possível salvar o agendamento.')
-        return
+      // Lógica de pacote_agendamentos para serviços tipo pacote
+      const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
+      if (servicoAtual?.é_pacote) {
+        const isConcluido = agendamentoForm.status === 'concluido'
+
+        // Novo agendamento com pacote: criar novo registro em pacote_agendamentos
+        if (!editingAgendamento) {
+          const { error: insertError } = await supabase
+            .from('pacote_agendamentos')
+            .insert({
+              agendamento_id: agendamentoId,
+              item_1: false,
+              item_2: false,
+              item_3: false,
+              item_4: false,
+            })
+
+          if (insertError) {
+            console.error('Erro ao criar pacote_agendamentos:', insertError)
+          }
+        }
+
+        // Quando marca como concluido: marcar próximo item do pacote
+        if (isConcluido && editingAgendamento) {
+          const { data: pacotes, error: fetchError } = await supabase
+            .from('pacote_agendamentos')
+            .select('*')
+            .eq('agendamento_id', agendamentoId)
+            .single()
+
+          if (!fetchError && pacotes) {
+            await markNextPacoteItem(pacotes.id)
+          }
+        }
       }
 
       // Sincroniza pacote_items em agendamentos futuros do mesmo cliente+serviço
-      const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
       const totalSlots = getPacoteTotalByService(servicoAtual)
       if (servicoAtual?.é_pacote && totalSlots > 0) {
         const isConcluido = agendamentoForm.status === 'concluido'
