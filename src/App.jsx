@@ -1246,6 +1246,12 @@ export default function App() {
                               !isCanceled &&
                               !isRescheduleLocked
                             const hasAlternatives = availableTimes.some((time) => time !== currentTime)
+                            const pacoteStatus =
+                              totalPacote > 0
+                                ? getPacoteStatus(
+                                    buildPacoteItems(totalPacote, totalConcluidosPacote)
+                                  )
+                                : null
 
                             return (
                               <div
@@ -1301,9 +1307,7 @@ export default function App() {
                                       <a
                                         className="btn-success"
                                         href={`https://wa.me/${item.cliente.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                                          `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(
-                                            item.data_hora_inicio
-                                          )} - ${formatTime(item.data_hora_inicio)}`
+                                          `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(item.data_hora_inicio)} - ${formatTime(item.data_hora_inicio)}${pacoteStatus ? ` ${pacoteStatus.completed + 1}/${pacoteStatus.total}` : ''}`
                                         )}`}
                                         target="_blank"
                                         rel="noreferrer"
