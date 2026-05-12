@@ -1307,7 +1307,7 @@ export default function App() {
                                       <a
                                         className="btn-success"
                                         href={`https://wa.me/${item.cliente.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                                          `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(item.data_hora_inicio)} - ${formatTime(item.data_hora_inicio)}${pacoteStatus ? ` ${pacoteStatus.completed + 1}/${pacoteStatus.total}` : ''}`
+                                          `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(item.data_hora_inicio)} - ${formatTime(item.data_hora_inicio)}${pacoteStatus ? ` pacote ${pacoteStatus.completed + 1}/${pacoteStatus.total}` : ''}`
                                         )}`}
                                         target="_blank"
                                         rel="noreferrer"
