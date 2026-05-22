@@ -1271,7 +1271,14 @@ export default function App() {
                                     {CURRENCY.format(getValorAgendamento(item, servicos))}
                                   </p>
                                   {totalPacote > 0 && (() => {
-                                    const computedItems = buildPacoteItems(totalPacote, totalConcluidosPacote)
+                                    let computedItems
+                                    if (item.status === 'concluido' && pacoteOrdinalById.has(item.id)) {
+                                      const { seq } = pacoteOrdinalById.get(item.id)
+                                      const posInCycle = ((seq - 1) % totalPacote) + 1
+                                      computedItems = Array(totalPacote).fill(false).map((_, i) => i < posInCycle)
+                                    } else {
+                                      computedItems = buildPacoteItems(totalPacote, totalConcluidosPacote)
+                                    }
                                     const { completed, total } = getPacoteStatus(computedItems)
                                     return (
                                       <div className="mt-3 space-y-2">
