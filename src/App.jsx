@@ -31,7 +31,6 @@ const CURRENCY = new Intl.NumberFormat('pt-BR', {
 const createClientForm = () => ({
   nome_completo: '',
   telefone: '',
-  endereco: '',
   observacoes: '',
 })
 
@@ -48,9 +47,7 @@ const createAgendamentoForm = (dateValue) => ({
   data: dateValue,
   hora_inicio: '09:00',
   status: 'pendente',
-  endereco_atendimento: '',
   observacoes: '',
-  usar_endereco_cliente: true,
   pacote_items: [],
 })
 
@@ -489,7 +486,6 @@ export default function App() {
     setClientForm({
       nome_completo: cliente.nome_completo || '',
       telefone: cliente.telefone || '',
-      endereco: cliente.endereco || '',
       observacoes: cliente.observacoes || '',
     })
     setClientModalOpen(true)
@@ -504,7 +500,6 @@ export default function App() {
     const payload = {
       nome_completo: clientForm.nome_completo.trim(),
       telefone: clientForm.telefone.trim(),
-      endereco: clientForm.endereco.trim() || null,
       observacoes: clientForm.observacoes.trim() || null,
     }
 
@@ -625,9 +620,7 @@ export default function App() {
       data: toLocalDateInput(agendamento.data_hora_inicio),
       hora_inicio: toLocalTimeInput(agendamento.data_hora_inicio),
       status: agendamento.status || 'pendente',
-      endereco_atendimento: agendamento.endereco_atendimento || '',
       observacoes: agendamento.observacoes || '',
-      usar_endereco_cliente: false,
       pacote_items: agendamento.pacote_items || [],
     })
     setAgendamentoModalOpen(true)
@@ -636,16 +629,6 @@ export default function App() {
   const updateAgendamentoField = (field, value) => {
     setAgendamentoForm((prev) => {
       const next = { ...prev, [field]: value }
-      if (field === 'cliente_id') {
-        if (next.usar_endereco_cliente) {
-          const cliente = clientes.find((item) => item.id === value)
-          next.endereco_atendimento = cliente?.endereco || ''
-        }
-      }
-      if (field === 'usar_endereco_cliente' && value) {
-        const cliente = clientes.find((item) => item.id === next.cliente_id)
-        next.endereco_atendimento = cliente?.endereco || ''
-      }
       if (field === 'servico_id' && !editingAgendamento) {
         const servico = servicos.find((item) => item.id === value)
         if (servico?.é_pacote) {
@@ -757,11 +740,6 @@ export default function App() {
         setError('Informe data e hora de início.')
         return
       }
-      if (!agendamentoForm.endereco_atendimento.trim()) {
-        setError('Informe o endereço do atendimento.')
-        return
-      }
-
       const servico = servicos.find((item) => item.id === agendamentoForm.servico_id)
       const originalDate = editingAgendamento
         ? toLocalDateInput(editingAgendamento.data_hora_inicio)
@@ -786,7 +764,6 @@ export default function App() {
         valor_cobrado: valorCobrado,
         data_hora_inicio: inicio,
         data_hora_fim: fim,
-        endereco_atendimento: agendamentoForm.endereco_atendimento.trim(),
         status: agendamentoForm.status,
         observacoes: agendamentoForm.observacoes.trim() || null,
         pacote_items: agendamentoForm.pacote_items || [],
@@ -1266,7 +1243,6 @@ export default function App() {
                                   <p className="text-base font-semibold">
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
-                                  <p className="text-xs text-white/50">{item.endereco_atendimento}</p>
                                   <p className="mt-2 text-sm font-semibold text-emerald-200">
                                     {CURRENCY.format(getValorAgendamento(item, servicos))}
                                   </p>
@@ -1418,9 +1394,6 @@ export default function App() {
                         <div>
                           <p className="text-lg font-semibold">{cliente.nome_completo}</p>
                           <p className="text-sm text-white/60">{cliente.telefone}</p>
-                          {cliente.endereco ? (
-                            <p className="mt-2 text-xs text-white/50">{cliente.endereco}</p>
-                          ) : null}
                         </div>
                         <button
                           type="button"
@@ -1679,17 +1652,6 @@ export default function App() {
             />
           </div>
           <div>
-            <label className="label">Endereço (opcional)</label>
-            <input
-              className="input"
-              value={clientForm.endereco}
-              onChange={(event) =>
-                setClientForm((prev) => ({ ...prev, endereco: event.target.value }))
-              }
-              placeholder="Rua, número, bairro"
-            />
-          </div>
-          <div>
             <label className="label">Observações</label>
             <textarea
               className="input min-h-[90px]"
@@ -1862,27 +1824,6 @@ export default function App() {
                 {horarioFim || '—'}
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <input
-              id="usar_endereco"
-              type="checkbox"
-              className="h-4 w-4"
-              checked={agendamentoForm.usar_endereco_cliente}
-              onChange={(event) => updateAgendamentoField('usar_endereco_cliente', event.target.checked)}
-            />
-            <label htmlFor="usar_endereco" className="text-sm text-white/70">
-              Usar endereço da cliente (se existir)
-            </label>
-          </div>
-          <div>
-            <label className="label">Endereço do atendimento</label>
-            <input
-              className="input"
-              value={agendamentoForm.endereco_atendimento}
-              onChange={(event) => updateAgendamentoField('endereco_atendimento', event.target.value)}
-              placeholder="Local do atendimento"
-            />
           </div>
           <div>
             <label className="label">Observações</label>
