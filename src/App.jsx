@@ -773,6 +773,7 @@ export default function App() {
       if (editingAgendamento) {
         const response = await supabase.from('agendamentos').update(payload).eq('id', editingAgendamento.id)
         if (response.error) {
+          console.error('Erro ao atualizar agendamento:', response.error)
           setError('Não foi possível salvar o agendamento.')
           return
         }
@@ -780,6 +781,7 @@ export default function App() {
       } else {
         const response = await supabase.from('agendamentos').insert(payload).select()
         if (response.error) {
+          console.error('Erro ao inserir agendamento:', response.error)
           setError('Não foi possível salvar o agendamento.')
           return
         }
