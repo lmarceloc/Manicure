@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Modal from './components/Modal.jsx'
 import { supabase } from './lib/supabase.js'
 
@@ -1291,7 +1291,7 @@ export default function App() {
                                     {item.cliente?.telefone ? (
                                       <a
                                         className="btn-success"
-                                        href={`https://wa.me/${item.cliente.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                                        href={`https://wa.me/${item.cliente.telefone.replace(/\D/g, '').startsWith('55') ? '' : '55'}${item.cliente.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(
                                           `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(item.data_hora_inicio)} - ${formatTime(item.data_hora_inicio)}${pacoteStatus ? ` pacote ${pacoteStatus.completed + 1}/${pacoteStatus.total}` : ''}`
                                         )}`}
                                         target="_blank"
@@ -1407,12 +1407,12 @@ export default function App() {
                       </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <a
-                          className="btn-ghost"
-                          href={`https://wa.me/${cliente.telefone.replace(/\D/g, '')}`}
-                          target="_blank"
-                          rel="noreferrer"
+                        className="btn-ghost"
+                        href={`https://wa.me/${cliente.telefone.replace(/\D/g, '').startsWith('55') ? '' : '55'}${cliente.telefone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
                         >
-                          WhatsApp
+                        WhatsApp
                         </a>
                         {cliente.observacoes ? (
                           <span className="text-xs text-white/50">{cliente.observacoes}</span>
