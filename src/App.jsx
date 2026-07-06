@@ -259,6 +259,13 @@ const getPacoteTotalByService = (servico) => {
     /\be\b/.test(nome)
   if (isPacoteQuatroMaosDoisPes) return 4
 
+  // Regra de negócio: no pacote "4 mãos e 1 pé", cada sessão considera 1 mão,
+  // então o controle visual precisa ter 4 etapas (4 atendimentos), não 5.
+  const isPacoteQuatroMaosUmPe =
+    /\b4\s*maos?\b/.test(nome) &&
+    /\b1\s*pes?\b/.test(nome)
+  if (isPacoteQuatroMaosUmPe) return 4
+
   // Regra de negócio: no pacote "2 mãos e 2 pés", cada sessão consome 2 etapas.
   const isPacoteDuasMaosDoisPes =
     /\b2\s*maos?\b/.test(nome) &&
