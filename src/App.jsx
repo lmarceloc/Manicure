@@ -1509,17 +1509,17 @@ export default function App() {
                             return (
                               <div
                                 key={item.id}
-                                className="appointment-card flex flex-col gap-4 rounded-2xl border border-black/30 bg-[#ebeae8] px-4 py-4 md:flex-row md:items-center md:justify-between"
+                                className="appointment-card flex flex-col gap-4 rounded-2xl border border-black/30 bg-[#ebeae8] px-2 py-4 md:flex-row md:items-center md:justify-between"
                               >
-                                <div className="appointment-info rounded-xl bg-[#ebeae8] p-4">
-                                  <p className="text-sm text-white/60">
+                                <div className="appointment-info rounded-xl bg-[#ebeae8] pl-2 pr-4">
+                                  <p className="text-base text-white/60">
                                     {formatTime(item.data_hora_inicio)} ·{' '}
                                     {item.servico?.nome || 'Serviço'}
                                   </p>
                                   <p className="text-base font-semibold">
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
-                                  <p className="mt-2 text-sm font-semibold text-emerald-600">
+                                  <p className="mt-2 text-base font-semibold text-emerald-600">
                                     {CURRENCY.format(getValorAgendamento(item, servicos))}
                                   </p>
                                   {totalPacote > 0 && (() => {
