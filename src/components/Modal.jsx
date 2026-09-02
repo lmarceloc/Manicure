@@ -9,7 +9,7 @@ export default function Modal({ open, title, onClose, children, footer }) {
         role="button"
         tabIndex={0}
       />
-      <div className="relative z-10 flex w-full max-w-xl flex-col rounded-3xl border border-white/15 bg-slate-900/70 p-6 shadow-2xl backdrop-blur-2xl max-h-[85vh]">
+      <div className="light-modal relative z-10 flex w-full max-w-xl max-h-[85vh] flex-col rounded-3xl border border-black bg-white p-6 text-black shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="label">Detalhes</p>
@@ -27,7 +27,7 @@ export default function Modal({ open, title, onClose, children, footer }) {
         </div>
         <div className="mt-6 flex-1 space-y-4 overflow-y-auto pr-1">{children}</div>
         {footer ? (
-          <div className="mt-6 flex justify-end gap-3 border-t border-white/10 pt-4">
+          <div className="mt-6 flex justify-end gap-3 border-t border-black/20 pt-4">
             {footer}
           </div>
         ) : null}

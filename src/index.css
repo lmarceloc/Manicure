@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * {
@@ -15,8 +15,8 @@
 body {
   margin: 0;
   font-family: 'Sora', 'Segoe UI', sans-serif;
-  color: #f3f6fb;
-  background: radial-gradient(circle at top, #1f2a38 0%, #0c121a 55%, #070a0e 100%);
+  color: #172033;
+  background: #ffffff;
   min-height: 100vh;
 }
 
@@ -26,11 +26,11 @@ body {
 
 @layer components {
   .glass-panel {
-    @apply bg-white/10 border border-white/15 backdrop-blur-xl shadow-xl;
+    @apply border border-black bg-white shadow-xl;
   }
 
   .glass-card {
-    @apply bg-white/10 border border-white/10 backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.35)];
+    @apply border border-black bg-white shadow-[0_20px_60px_rgba(15,23,42,0.12)];
   }
 
   .btn {
@@ -45,29 +45,75 @@ body {
     @apply btn bg-emerald-300/90 text-slate-900 hover:bg-emerald-200;
   }
 
+  .btn-confirm {
+    @apply btn bg-pink-400 text-slate-950 shadow-[0_0_18px_rgba(244,114,182,0.35)] hover:bg-pink-300;
+  }
+
+  .btn-delete {
+    @apply btn border border-red-800 bg-red-600 text-white shadow-[0_0_18px_rgba(220,38,38,0.3)] hover:bg-red-500;
+  }
+
   .btn-outline {
-    @apply btn border border-white/20 text-white hover:bg-white/10;
+    @apply btn border border-black text-black hover:bg-black/5;
   }
 
   .btn-ghost {
-    @apply btn text-white/70 hover:text-white hover:bg-white/10;
+    @apply btn text-black/70 hover:bg-black/5 hover:text-black;
   }
 
   .input {
-    @apply w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-sky-300/60;
+    @apply w-full rounded-xl border border-black bg-white px-3 py-2 text-sm text-black placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-sky-300/60;
   }
 
   select.input {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   select.input option {
-    background-color: #0f172a;
-    color: #f8fafc;
+    background-color: #ffffff;
+    color: #111827;
   }
 
   .label {
-    @apply text-[11px] uppercase tracking-[0.18em] text-white/60;
+    @apply text-[11px] uppercase tracking-[0.18em] text-black/60;
+  }
+
+  .glass-panel [class*='text-white'],
+  .glass-card [class*='text-white'] {
+    color: #111827 !important;
+  }
+
+  .glass-panel [class*='border-white'],
+  .glass-card [class*='border-white'] {
+    border-color: rgb(0 0 0 / 0.2) !important;
+  }
+
+  .glass-panel .badge.bg-red-600,
+  .glass-card .badge.bg-red-600 {
+    color: #ffffff !important;
+  }
+
+  .glass-panel .badge.bg-amber-500,
+  .glass-card .badge.bg-amber-500,
+  .glass-panel .badge.bg-emerald-600,
+  .glass-card .badge.bg-emerald-600 {
+    color: #ffffff !important;
+  }
+
+  .light-modal [class*='text-white'] {
+    color: #111827 !important;
+  }
+
+  .light-modal [class*='border-white'] {
+    border-color: rgb(0 0 0 / 0.2) !important;
+  }
+
+  .light-modal [class*='bg-white/'] {
+    background-color: rgb(0 0 0 / 0.05) !important;
+  }
+
+  .light-modal .btn-delete {
+    color: #ffffff !important;
   }
 
   .badge {

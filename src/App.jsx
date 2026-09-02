@@ -10,9 +10,9 @@ const NAV_ITEMS = [
 ]
 
 const STATUS_STYLES = {
-  pendente: 'bg-amber-300/15 text-amber-200 border border-amber-300/40',
-  confirmado: 'bg-emerald-300/15 text-emerald-200 border border-emerald-300/40',
-  concluido: 'bg-red-300/15 text-red-200 border border-red-300/40',
+  pendente: 'bg-amber-500 text-white border border-amber-700',
+  confirmado: 'bg-emerald-600 text-white border border-emerald-800',
+  concluido: 'bg-red-600 text-white border border-red-800',
   cancelado: 'bg-gray-300/15 text-gray-200 border border-gray-300/40',
 }
 
@@ -50,7 +50,7 @@ const createAgendamentoForm = (dateValue) => ({
   observacoes: '',
   pacote_items: [],
   recorrente: false,
-  recorrencia_semanas: '4',
+  recorrencia_ate: '',
 })
 
 const toLocalDateInput = (value) => {
@@ -305,7 +305,7 @@ function SaveButton({ loading, onClick, loadingLabel = 'Salvando...', type = 'bu
   return (
     <button
       type={type}
-      className={`btn-primary save-button ${className} ${loading ? 'save-button-loading' : ''}`}
+      className={`btn-confirm save-button ${className} ${loading ? 'save-button-loading' : ''}`}
       onClick={onClick}
       disabled={loading}
       aria-busy={loading}
@@ -701,7 +701,7 @@ export default function App() {
 
       const response = editingClient
         ? await supabase.from('clientes').update(payload).eq('id', editingClient.id)
-        : await supabase.from('clientes').insert(payload)
+        : await supabase.from('clientes').insert({ ...payload, user_id: session.user.id })
 
       if (response.error) {
         setError('Não foi possível salvar a cliente.')
@@ -783,7 +783,7 @@ export default function App() {
 
       const response = editingService
         ? await supabase.from('servicos').update(payload).eq('id', editingService.id)
-        : await supabase.from('servicos').insert(payload)
+        : await supabase.from('servicos').insert({ ...payload, user_id: session.user.id })
 
       if (response.error) {
         setError('Não foi possível salvar o serviço.')
@@ -832,7 +832,7 @@ export default function App() {
       observacoes: agendamento.observacoes || '',
       pacote_items: agendamento.pacote_items || [],
       recorrente: false,
-      recorrencia_semanas: '4',
+      recorrencia_ate: '',
     })
     setAgendamentoModalOpen(true)
   }
@@ -952,15 +952,16 @@ export default function App() {
         setError('Informe data e hora de início.')
         return
       }
-      const recurrenceWeeks = agendamentoForm.recorrente
-        ? Number(agendamentoForm.recorrencia_semanas)
-        : 1
+      if (!editingAgendamento && agendamentoForm.recorrente && !agendamentoForm.recorrencia_ate) {
+        setError('Informe até qual data o agendamento deve se repetir.')
+        return
+      }
       if (
         !editingAgendamento &&
         agendamentoForm.recorrente &&
-        (!Number.isInteger(recurrenceWeeks) || recurrenceWeeks < 1 || recurrenceWeeks > 52)
+        agendamentoForm.recorrencia_ate < agendamentoForm.data
       ) {
-        setError('Informe uma quantidade de semanas entre 1 e 52.')
+        setError('A data final deve ser igual ou posterior à data inicial.')
         return
       }
       const servico = servicos.find((item) => item.id === agendamentoForm.servico_id)
@@ -973,9 +974,17 @@ export default function App() {
       const timeChanged =
         editingAgendamento &&
         (originalDate !== agendamentoForm.data || originalTime !== agendamentoForm.hora_inicio)
-      const dates = Array.from({ length: recurrenceWeeks }, (_, index) =>
-        addWeeksToDate(agendamentoForm.data, index)
-      )
+      const recurrenceEndDate = agendamentoForm.recorrente
+        ? agendamentoForm.recorrencia_ate
+        : agendamentoForm.data
+      const dates = []
+      let weekIndex = 0
+      let recurringDate = addWeeksToDate(agendamentoForm.data, weekIndex)
+      while (recurringDate <= recurrenceEndDate) {
+        dates.push(recurringDate)
+        weekIndex += 1
+        recurringDate = addWeeksToDate(agendamentoForm.data, weekIndex)
+      }
       const payloads = dates.map((date) => {
         const inicio = combineDateTime(date, agendamentoForm.hora_inicio)
         const fim = servico
@@ -988,6 +997,7 @@ export default function App() {
         return {
           cliente_id: agendamentoForm.cliente_id,
           servico_id: agendamentoForm.servico_id,
+          user_id: session.user.id,
           valor_cobrado: valorCobrado,
           data_hora_inicio: inicio,
           data_hora_fim: fim,
@@ -1018,6 +1028,7 @@ export default function App() {
         if (servico?.é_pacote && response.data?.length) {
           const pacotePayloads = response.data.map((agendamento) => ({
             agendamento_id: agendamento.id,
+            user_id: session.user.id,
             item_1: false,
             item_2: false,
             item_3: false,
@@ -1044,6 +1055,7 @@ export default function App() {
             .from('pacote_agendamentos')
             .insert({
               agendamento_id: agendamentoId,
+              user_id: session.user.id,
               item_1: false,
               item_2: false,
               item_3: false,
@@ -1199,7 +1211,7 @@ export default function App() {
   }
 
   if (authLoading) {
-    return <div className="flex min-h-screen items-center justify-center text-white/60">Carregando...</div>
+    return <div className="flex min-h-screen items-center justify-center text-slate-600">Carregando...</div>
   }
 
   if (!session) {
@@ -1289,7 +1301,7 @@ export default function App() {
                 >
                   Menu
                 </button>
-                <button type="button" className="btn-primary" onClick={openNewAgendamento}>
+                <button type="button" className="btn-confirm" onClick={openNewAgendamento}>
                   Novo agendamento
                 </button>
                 <button type="button" className="btn-ghost" onClick={signOut}>
@@ -1507,7 +1519,7 @@ export default function App() {
                                   <p className="text-base font-semibold">
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
-                                  <p className="mt-2 text-sm font-semibold text-emerald-200">
+                                  <p className="mt-2 text-sm font-semibold text-emerald-600">
                                     {CURRENCY.format(getValorAgendamento(item, servicos))}
                                   </p>
                                   {totalPacote > 0 && (() => {
@@ -1552,7 +1564,7 @@ export default function App() {
                                     </span>
                                     {item.cliente?.telefone ? (
                                       <a
-                                        className="btn-success"
+                                        className="btn-confirm"
                                         href={`https://wa.me/${item.cliente.telefone.replace(/\D/g, '').startsWith('55') ? '' : '55'}${item.cliente.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(
                                           `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(item.data_hora_inicio)} - ${formatTime(item.data_hora_inicio)}${pacoteStatus ? ` pacote ${pacoteStatus.completed + 1}/${pacoteStatus.total}` : ''}`
                                         )}`}
@@ -1562,7 +1574,7 @@ export default function App() {
                                         Confirmar horário
                                       </a>
                                     ) : (
-                                      <button type="button" className="btn-success" disabled>
+                                      <button type="button" className="btn-confirm" disabled>
                                         Confirmar horário
                                       </button>
                                     )}
@@ -1709,7 +1721,7 @@ export default function App() {
                         <div className="flex flex-wrap items-center gap-3">
                           <span
                             className={`badge ${servico.ativo
-                                ? 'bg-emerald-300/15 text-emerald-200'
+                                ? 'bg-emerald-600 text-white border border-emerald-800'
                                 : 'bg-white/10 text-white/60'
                               }`}
                           >
@@ -1765,7 +1777,7 @@ export default function App() {
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="glass-panel rounded-3xl p-5">
                     <p className="label">Receita</p>
-                    <p className="mt-2 text-2xl font-semibold">{CURRENCY.format(totalReceita)}</p>
+                    <p className="mt-2 text-2xl font-semibold text-emerald-600">{CURRENCY.format(totalReceita)}</p>
                     <p className="mt-2 text-xs text-white/60">Somente atendimentos concluídos.</p>
                   </div>
                   <div className="glass-panel rounded-3xl p-5">
@@ -1775,7 +1787,7 @@ export default function App() {
                   </div>
                   <div className="glass-panel rounded-3xl p-5">
                     <p className="label">Ticket médio</p>
-                    <p className="mt-2 text-2xl font-semibold">{CURRENCY.format(ticketMedio)}</p>
+                    <p className="mt-2 text-2xl font-semibold text-emerald-600">{CURRENCY.format(ticketMedio)}</p>
                     <p className="mt-2 text-xs text-white/60">Receita média por atendimento.</p>
                   </div>
                 </div>
@@ -1865,7 +1877,7 @@ export default function App() {
                                 </p>
                               ) : null}
                             </div>
-                            <p className={`text-base font-semibold ${valorFat > 0 ? 'text-emerald-200' : 'text-white/30'}`}>
+                            <p className={`text-base font-semibold ${valorFat > 0 ? 'text-emerald-600' : 'text-black/40'}`}>
                               {valorFat > 0 ? CURRENCY.format(valorFat) : 'Pacote'}
                             </p>
                           </div>
@@ -2036,7 +2048,7 @@ export default function App() {
             {editingAgendamento ? (
               <button
                 type="button"
-                className="btn border border-red-300/60 text-red-200 hover:bg-red-300/10"
+                className="btn-delete"
                 onClick={deleteAgendamento}
               >
                 Excluir agendamento
@@ -2129,23 +2141,21 @@ export default function App() {
                 Agendamento recorrente
               </label>
               {agendamentoForm.recorrente ? (
-                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,180px)_1fr] md:items-end">
+                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,220px)_1fr] md:items-end">
                   <div>
-                    <label className="label">Repetir por</label>
+                    <label className="label">Repetir até</label>
                     <input
-                      type="number"
-                      min="1"
-                      max="52"
-                      step="1"
+                      type="date"
                       className="input"
-                      value={agendamentoForm.recorrencia_semanas}
+                      min={agendamentoForm.data}
+                      value={agendamentoForm.recorrencia_ate}
                       onChange={(event) =>
-                        updateAgendamentoField('recorrencia_semanas', event.target.value)
+                        updateAgendamentoField('recorrencia_ate', event.target.value)
                       }
                     />
                   </div>
                   <p className="text-xs leading-5 text-white/60">
-                    O mesmo cliente será agendado toda semana, no mesmo dia e horário, a partir da data escolhida.
+                    O mesmo cliente será agendado toda semana, no mesmo dia e horário, até essa data.
                   </p>
                 </div>
               ) : null}
