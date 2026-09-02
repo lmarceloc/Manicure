@@ -49,6 +49,8 @@ const createAgendamentoForm = (dateValue) => ({
   status: 'pendente',
   observacoes: '',
   pacote_items: [],
+  recorrente: false,
+  recorrencia_semanas: '4',
 })
 
 const toLocalDateInput = (value) => {
@@ -87,6 +89,12 @@ const combineDateTime = (date, time) => {
   if (!date || !time) return null
   const local = new Date(`${date}T${time}:00`)
   return local.toISOString()
+}
+
+const addWeeksToDate = (dateValue, weeks) => {
+  const date = new Date(`${dateValue}T00:00:00`)
+  date.setDate(date.getDate() + weeks * 7)
+  return toLocalDateInput(date)
 }
 
 const startOfWeek = (dateValue) => {
@@ -286,7 +294,118 @@ const getPacoteTotalByService = (servico) => {
   return Number.isFinite(total) && total > 1 ? total : 0
 }
 
+const waitForSaveAnimation = async (startedAt) => {
+  const remaining = 1000 - (Date.now() - startedAt)
+  if (remaining > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remaining))
+  }
+}
+
+function SaveButton({ loading, onClick }) {
+  return (
+    <button
+      type="button"
+      className={`btn-primary save-button ${loading ? 'save-button-loading' : ''}`}
+      onClick={onClick}
+      disabled={loading}
+      aria-busy={loading}
+    >
+      {loading ? (
+        <span className="save-button-content">
+          <span className="save-spinner" aria-hidden="true" />
+          <span>Salvando...</span>
+          <span className="save-spark save-spark-one" aria-hidden="true" />
+          <span className="save-spark save-spark-two" aria-hidden="true" />
+          <span className="save-spark save-spark-three" aria-hidden="true" />
+        </span>
+      ) : (
+        'Salvar'
+      )}
+    </button>
+  )
+}
+
+function LoginScreen() {
+  const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    setError('')
+    setLoading(true)
+
+    const { error: loginError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: senha,
+    })
+
+    if (loginError) {
+      setError('Email ou senha inválidos.')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8">
+      <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-sky-400/20 blur-3xl" />
+      <div className="pointer-events-none absolute right-0 top-40 h-64 w-64 rounded-full bg-emerald-400/10 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 left-0 h-72 w-72 rounded-full bg-rose-400/10 blur-3xl" />
+
+      <form
+        className="glass-panel relative w-full max-w-md rounded-3xl p-6 shadow-2xl md:p-8"
+        onSubmit={handleSubmit}
+      >
+        <div className="mb-8">
+          <p className="label">Agenda Manicure</p>
+          <h1 className="mt-2 text-2xl font-semibold">Entrar</h1>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="label" htmlFor="login-email">Email</label>
+            <input
+              id="login-email"
+              type="email"
+              className="input mt-2"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              required
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="login-senha">Senha</label>
+            <input
+              id="login-senha"
+              type="password"
+              className="input mt-2"
+              value={senha}
+              onChange={(event) => setSenha(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+        </div>
+
+        {error ? (
+          <p className="mt-4 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+            {error}
+          </p>
+        ) : null}
+
+        <button type="submit" className="btn-primary mt-6 w-full" disabled={loading}>
+          {loading ? 'Entrando...' : 'Entrar'}
+        </button>
+      </form>
+    </main>
+  )
+}
+
 export default function App() {
+  const [session, setSession] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('agenda')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -317,6 +436,8 @@ export default function App() {
   const [rescheduleLocks, setRescheduleLocks] = useState({})
   const [editLocks, setEditLocks] = useState({})
   const [savingAgendamento, setSavingAgendamento] = useState(false)
+  const [savingClient, setSavingClient] = useState(false)
+  const [savingService, setSavingService] = useState(false)
   const weekScrollRef = useRef(null)
 
   const [periodoInicio, setPeriodoInicio] = useState(() => {
@@ -325,6 +446,7 @@ export default function App() {
     return toLocalDateInput(date)
   })
   const [periodoFim, setPeriodoFim] = useState(today)
+  const [faturamentoView, setFaturamentoView] = useState('historico')
 
   const loadData = async () => {
     setLoading(true)
@@ -352,8 +474,28 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadData()
+    let mounted = true
+
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      if (!mounted) return
+      setSession(currentSession)
+      setAuthLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession)
+      setAuthLoading(false)
+    })
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
+
+  useEffect(() => {
+    if (session) loadData()
+  }, [session])
 
   useEffect(() => {
     if (agendaMode === 'semana') {
@@ -478,6 +620,32 @@ export default function App() {
   const ticketMedio =
     atendimentosFaturados.length > 0 ? totalReceita / atendimentosFaturados.length : 0
 
+  const faturamentoPorDia = useMemo(() => {
+    if (!periodoInicio || !periodoFim || periodoInicio > periodoFim) return []
+
+    const valoresPorDia = new Map()
+    faturamentoFiltrado.forEach((item) => {
+      const dateKey = toLocalDateInput(item.data_hora_inicio)
+      valoresPorDia.set(dateKey, (valoresPorDia.get(dateKey) || 0) + getValorFaturamento(item))
+    })
+
+    const dias = []
+    const date = parseDateValue(periodoInicio)
+    const endDate = parseDateValue(periodoFim)
+    while (date <= endDate) {
+      const dateKey = toLocalDateInput(date)
+      dias.push({
+        dateKey,
+        label: new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(date),
+        value: valoresPorDia.get(dateKey) || 0,
+      })
+      date.setDate(date.getDate() + 1)
+    }
+    return dias
+  }, [faturamentoFiltrado, periodoInicio, periodoFim, pacoteOrdinalById])
+
+  const maiorFaturamentoDiario = Math.max(...faturamentoPorDia.map((item) => item.value), 0)
+
   const resetClientForm = () => setClientForm(createClientForm())
   const resetServiceForm = () => setServiceForm(createServiceForm())
   const resetAgendamentoForm = () => setAgendamentoForm(createAgendamentoForm(selectedDate))
@@ -504,24 +672,32 @@ export default function App() {
       return
     }
 
-    const payload = {
-      nome_completo: clientForm.nome_completo.trim(),
-      telefone: clientForm.telefone.trim(),
-      observacoes: clientForm.observacoes.trim() || null,
+    const startedAt = Date.now()
+    setSavingClient(true)
+    try {
+      const payload = {
+        nome_completo: clientForm.nome_completo.trim(),
+        telefone: clientForm.telefone.trim(),
+        observacoes: clientForm.observacoes.trim() || null,
+      }
+
+      const response = editingClient
+        ? await supabase.from('clientes').update(payload).eq('id', editingClient.id)
+        : await supabase.from('clientes').insert(payload)
+
+      if (response.error) {
+        setError('Não foi possível salvar a cliente.')
+        return
+      }
+
+      await waitForSaveAnimation(startedAt)
+      setClientModalOpen(false)
+      resetClientForm()
+      await loadData()
+    } finally {
+      await waitForSaveAnimation(startedAt)
+      setSavingClient(false)
     }
-
-    const response = editingClient
-      ? await supabase.from('clientes').update(payload).eq('id', editingClient.id)
-      : await supabase.from('clientes').insert(payload)
-
-    if (response.error) {
-      setError('Não foi possível salvar a cliente.')
-      return
-    }
-
-    setClientModalOpen(false)
-    resetClientForm()
-    await loadData()
   }
 
   const deleteClient = async () => {
@@ -577,25 +753,33 @@ export default function App() {
       return
     }
 
-    const payload = {
-      nome: serviceForm.nome.trim(),
-      valor: editingService?.valor ?? 0,
-      duracao_minutos: duracao,
-      ativo: Boolean(serviceForm.ativo),
+    const startedAt = Date.now()
+    setSavingService(true)
+    try {
+      const payload = {
+        nome: serviceForm.nome.trim(),
+        valor: editingService?.valor ?? 0,
+        duracao_minutos: duracao,
+        ativo: Boolean(serviceForm.ativo),
+      }
+
+      const response = editingService
+        ? await supabase.from('servicos').update(payload).eq('id', editingService.id)
+        : await supabase.from('servicos').insert(payload)
+
+      if (response.error) {
+        setError('Não foi possível salvar o serviço.')
+        return
+      }
+
+      await waitForSaveAnimation(startedAt)
+      setServiceModalOpen(false)
+      resetServiceForm()
+      await loadData()
+    } finally {
+      await waitForSaveAnimation(startedAt)
+      setSavingService(false)
     }
-
-    const response = editingService
-      ? await supabase.from('servicos').update(payload).eq('id', editingService.id)
-      : await supabase.from('servicos').insert(payload)
-
-    if (response.error) {
-      setError('Não foi possível salvar o serviço.')
-      return
-    }
-
-    setServiceModalOpen(false)
-    resetServiceForm()
-    await loadData()
   }
 
   const toggleServiceStatus = async (servico) => {
@@ -629,6 +813,8 @@ export default function App() {
       status: agendamento.status || 'pendente',
       observacoes: agendamento.observacoes || '',
       pacote_items: agendamento.pacote_items || [],
+      recorrente: false,
+      recorrencia_semanas: '4',
     })
     setAgendamentoModalOpen(true)
   }
@@ -728,6 +914,7 @@ export default function App() {
   const saveAgendamento = async () => {
     if (savingAgendamento) return
     setSavingAgendamento(true)
+    const startedAt = Date.now()
 
     try {
       console.log('Salvando agendamento...', agendamentoForm)
@@ -747,6 +934,17 @@ export default function App() {
         setError('Informe data e hora de início.')
         return
       }
+      const recurrenceWeeks = agendamentoForm.recorrente
+        ? Number(agendamentoForm.recorrencia_semanas)
+        : 1
+      if (
+        !editingAgendamento &&
+        agendamentoForm.recorrente &&
+        (!Number.isInteger(recurrenceWeeks) || recurrenceWeeks < 1 || recurrenceWeeks > 52)
+      ) {
+        setError('Informe uma quantidade de semanas entre 1 e 52.')
+        return
+      }
       const servico = servicos.find((item) => item.id === agendamentoForm.servico_id)
       const originalDate = editingAgendamento
         ? toLocalDateInput(editingAgendamento.data_hora_inicio)
@@ -757,28 +955,33 @@ export default function App() {
       const timeChanged =
         editingAgendamento &&
         (originalDate !== agendamentoForm.data || originalTime !== agendamentoForm.hora_inicio)
-      const inicio = combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
-      const fim = servico
-        ? new Date(
-          new Date(`${agendamentoForm.data}T${agendamentoForm.hora_inicio}:00`).getTime() +
-          servico.duracao_minutos * 60000
-        ).toISOString()
-        : combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio)
+      const dates = Array.from({ length: recurrenceWeeks }, (_, index) =>
+        addWeeksToDate(agendamentoForm.data, index)
+      )
+      const payloads = dates.map((date) => {
+        const inicio = combineDateTime(date, agendamentoForm.hora_inicio)
+        const fim = servico
+          ? new Date(
+            new Date(`${date}T${agendamentoForm.hora_inicio}:00`).getTime() +
+            servico.duracao_minutos * 60000
+          ).toISOString()
+          : inicio
 
-      const payload = {
-        cliente_id: agendamentoForm.cliente_id,
-        servico_id: agendamentoForm.servico_id,
-        valor_cobrado: valorCobrado,
-        data_hora_inicio: inicio,
-        data_hora_fim: fim,
-        status: agendamentoForm.status,
-        observacoes: agendamentoForm.observacoes.trim() || null,
-        pacote_items: agendamentoForm.pacote_items || [],
-      }
+        return {
+          cliente_id: agendamentoForm.cliente_id,
+          servico_id: agendamentoForm.servico_id,
+          valor_cobrado: valorCobrado,
+          data_hora_inicio: inicio,
+          data_hora_fim: fim,
+          status: agendamentoForm.status,
+          observacoes: agendamentoForm.observacoes.trim() || null,
+          pacote_items: agendamentoForm.pacote_items || [],
+        }
+      })
 
       let agendamentoId
       if (editingAgendamento) {
-        const response = await supabase.from('agendamentos').update(payload).eq('id', editingAgendamento.id)
+        const response = await supabase.from('agendamentos').update(payloads[0]).eq('id', editingAgendamento.id)
         if (response.error) {
           console.error('Erro ao atualizar agendamento:', response.error)
           setError('Não foi possível salvar o agendamento.')
@@ -786,13 +989,30 @@ export default function App() {
         }
         agendamentoId = editingAgendamento.id
       } else {
-        const response = await supabase.from('agendamentos').insert(payload).select()
+        const response = await supabase.from('agendamentos').insert(payloads).select()
         if (response.error) {
           console.error('Erro ao inserir agendamento:', response.error)
           setError('Não foi possível salvar o agendamento.')
           return
         }
         agendamentoId = response.data?.[0]?.id
+
+        if (servico?.é_pacote && response.data?.length) {
+          const pacotePayloads = response.data.map((agendamento) => ({
+            agendamento_id: agendamento.id,
+            item_1: false,
+            item_2: false,
+            item_3: false,
+            item_4: false,
+          }))
+          const { error: insertError } = await supabase
+            .from('pacote_agendamentos')
+            .insert(pacotePayloads)
+
+          if (insertError) {
+            console.error('Erro ao criar pacote_agendamentos:', insertError)
+          }
+        }
       }
 
       // Lógica de pacote_agendamentos para serviços tipo pacote
@@ -801,7 +1021,7 @@ export default function App() {
         const isConcluido = agendamentoForm.status === 'concluido'
 
         // Novo agendamento com pacote: criar novo registro em pacote_agendamentos
-        if (!editingAgendamento) {
+        if (!editingAgendamento && !servico?.é_pacote) {
           const { error: insertError } = await supabase
             .from('pacote_agendamentos')
             .insert({
@@ -901,11 +1121,13 @@ export default function App() {
         setRescheduleLocks((prev) => ({ ...prev, [editingAgendamento.id]: false }))
       }
 
+      await waitForSaveAnimation(startedAt)
       setError('')
       setAgendamentoModalOpen(false)
       resetAgendamentoForm()
       await loadData()
     } finally {
+      await waitForSaveAnimation(startedAt)
       setSavingAgendamento(false)
     }
   }
@@ -952,6 +1174,14 @@ export default function App() {
     if (!container) return
     const amount = Math.max(220, Math.floor(container.clientWidth * 0.8))
     container.scrollBy({ left: direction * amount, behavior: 'smooth' })
+  }
+
+  if (authLoading) {
+    return <div className="flex min-h-screen items-center justify-center text-white/60">Carregando...</div>
+  }
+
+  if (!session) {
+    return <LoginScreen />
   }
 
   const updateRescheduleTime = (id, value) => {
@@ -1528,40 +1758,96 @@ export default function App() {
                 <div className="glass-panel rounded-3xl p-5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-lg font-semibold">Histórico</h4>
-                    <span className="text-xs text-white/60">
-                      {faturamentoFiltrado.length} registros
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={`btn-outline ${faturamentoView === 'historico' ? 'bg-white/20' : ''}`}
+                        onClick={() => setFaturamentoView('historico')}
+                      >
+                        Histórico
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn-outline ${faturamentoView === 'grafico' ? 'bg-white/20' : ''}`}
+                        onClick={() => setFaturamentoView('grafico')}
+                      >
+                        Gráfico
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-4 space-y-3">
-                    {faturamentoFiltrado.map((item) => {
-                      const valorFat = getValorFaturamento(item)
-                      const ordinal = pacoteOrdinalById.get(item.id)
-                      return (
-                        <div
-                          key={item.id}
-                          className="glass-card flex flex-col gap-2 rounded-2xl px-4 py-3 md:flex-row md:items-center md:justify-between"
-                        >
-                          <div>
-                            <p className="text-sm text-white/60">
-                              {formatDate(item.data_hora_inicio)} · {formatTime(item.data_hora_inicio)}
-                            </p>
-                            <p className="text-base font-semibold">
-                              {item.cliente?.nome_completo || 'Cliente'} ·{' '}
-                              {item.servico?.nome || 'Serviço'}
-                            </p>
-                            {ordinal ? (
-                              <p className="text-xs text-white/40">
-                                Pacote {((ordinal.seq - 1) % ordinal.totalPacote) + 1}/{ordinal.totalPacote}
-                              </p>
-                            ) : null}
+                  {faturamentoView === 'grafico' ? (
+                    <div className="mt-6">
+                      <div className="mb-3 flex items-center justify-between text-xs text-white/50">
+                        <span>Faturamento por dia</span>
+                        <span>{CURRENCY.format(totalReceita)} no período</span>
+                      </div>
+                      {faturamentoPorDia.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-white/50">
+                          Selecione um período válido para visualizar o gráfico.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto pb-2">
+                          <div
+                            className="flex min-w-full items-end gap-2"
+                            style={{ minWidth: `${Math.max(560, faturamentoPorDia.length * 34)}px`, height: '260px' }}
+                          >
+                            {faturamentoPorDia.map((item) => {
+                              const height = maiorFaturamentoDiario
+                                ? Math.max((item.value / maiorFaturamentoDiario) * 190, item.value ? 8 : 2)
+                                : 2
+                              return (
+                                <div
+                                  key={item.dateKey}
+                                  className="flex h-full min-w-[26px] flex-1 flex-col items-center justify-end gap-2"
+                                  title={`${item.label}: ${CURRENCY.format(item.value)}`}
+                                >
+                                  <span className="max-w-[70px] truncate text-[10px] text-white/60">
+                                    {item.value > 0 ? CURRENCY.format(item.value) : '—'}
+                                  </span>
+                                  <div
+                                    className="w-full rounded-t-lg bg-emerald-300/80 transition hover:bg-emerald-200"
+                                    style={{ height: `${height}px` }}
+                                  />
+                                  <span className="text-[10px] text-white/50">{item.label}</span>
+                                </div>
+                              )
+                            })}
                           </div>
-                          <p className={`text-base font-semibold ${valorFat > 0 ? 'text-emerald-200' : 'text-white/30'}`}>
-                            {valorFat > 0 ? CURRENCY.format(valorFat) : 'Pacote'}
-                          </p>
                         </div>
-                      )
-                    })}
-                  </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {faturamentoFiltrado.map((item) => {
+                        const valorFat = getValorFaturamento(item)
+                        const ordinal = pacoteOrdinalById.get(item.id)
+                        return (
+                          <div
+                            key={item.id}
+                            className="glass-card flex flex-col gap-2 rounded-2xl px-4 py-3 md:flex-row md:items-center md:justify-between"
+                          >
+                            <div>
+                              <p className="text-sm text-white/60">
+                                {formatDate(item.data_hora_inicio)} · {formatTime(item.data_hora_inicio)}
+                              </p>
+                              <p className="text-base font-semibold">
+                                {item.cliente?.nome_completo || 'Cliente'} ·{' '}
+                                {item.servico?.nome || 'Serviço'}
+                              </p>
+                              {ordinal ? (
+                                <p className="text-xs text-white/40">
+                                  Pacote {((ordinal.seq - 1) % ordinal.totalPacote) + 1}/{ordinal.totalPacote}
+                                </p>
+                              ) : null}
+                            </div>
+                            <p className={`text-base font-semibold ${valorFat > 0 ? 'text-emerald-200' : 'text-white/30'}`}>
+                              {valorFat > 0 ? CURRENCY.format(valorFat) : 'Pacote'}
+                            </p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </section>
             ) : null}
@@ -1630,9 +1916,7 @@ export default function App() {
               <button type="button" className="btn-outline" onClick={() => setClientModalOpen(false)}>
                 Cancelar
               </button>
-              <button type="button" className="btn-primary" onClick={saveClient}>
-                Salvar
-              </button>
+              <SaveButton loading={savingClient} onClick={saveClient} />
             </div>
           </div>
         }
@@ -1687,9 +1971,7 @@ export default function App() {
             >
               Cancelar
             </button>
-            <button type="button" className="btn-primary" onClick={saveService}>
-              Salvar
-            </button>
+            <SaveButton loading={savingService} onClick={saveService} />
           </>
         }
       >
@@ -1745,9 +2027,7 @@ export default function App() {
               >
                 Cancelar
               </button>
-              <button type="button" className="btn-primary" onClick={saveAgendamento}>
-                Salvar
-              </button>
+              <SaveButton loading={savingAgendamento} onClick={saveAgendamento} />
             </div>
           </div>
         }
@@ -1812,6 +2092,40 @@ export default function App() {
               />
             </div>
           </div>
+          {!editingAgendamento ? (
+            <div className="rounded-2xl border border-sky-300/25 bg-sky-300/10 p-4">
+              <label className="flex cursor-pointer items-center gap-3 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-sky-300"
+                  checked={agendamentoForm.recorrente}
+                  onChange={(event) => updateAgendamentoField('recorrente', event.target.checked)}
+                />
+                Agendamento recorrente
+              </label>
+              {agendamentoForm.recorrente ? (
+                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,180px)_1fr] md:items-end">
+                  <div>
+                    <label className="label">Repetir por</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="52"
+                      step="1"
+                      className="input"
+                      value={agendamentoForm.recorrencia_semanas}
+                      onChange={(event) =>
+                        updateAgendamentoField('recorrencia_semanas', event.target.value)
+                      }
+                    />
+                  </div>
+                  <p className="text-xs leading-5 text-white/60">
+                    O mesmo cliente será agendado toda semana, no mesmo dia e horário, a partir da data escolhida.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="label">Status</label>
