@@ -116,6 +116,29 @@ body {
     color: #ffffff !important;
   }
 
+  .appointment-info [class*='text-white'] {
+    color: #111827 !important;
+  }
+
+  .appointment-info [class*='text-emerald-200'] {
+    color: #047857 !important;
+  }
+
+  .appointment-info [class*='border-white'] {
+    border-color: rgb(17 24 39 / 0.25) !important;
+  }
+
+  .appointment-card [class*='text-white'] {
+    color: #111827 !important;
+  }
+
+  .appointment-card .badge.bg-red-600,
+  .appointment-card .badge.bg-amber-500,
+  .appointment-card .badge.bg-emerald-600,
+  .appointment-card .btn-delete {
+    color: #ffffff !important;
+  }
+
   .badge {
     @apply rounded-full px-3 py-1 text-xs font-semibold;
   }

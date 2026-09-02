@@ -1509,9 +1509,9 @@ export default function App() {
                             return (
                               <div
                                 key={item.id}
-                                className="glass-card flex flex-col gap-4 rounded-2xl px-4 py-4 md:flex-row md:items-center md:justify-between"
+                                className="appointment-card flex flex-col gap-4 rounded-2xl border border-black/30 bg-[#ebeae8] px-4 py-4 md:flex-row md:items-center md:justify-between"
                               >
-                                <div>
+                                <div className="appointment-info rounded-xl bg-[#ebeae8] p-4">
                                   <p className="text-sm text-white/60">
                                     {formatTime(item.data_hora_inicio)} ·{' '}
                                     {item.servico?.nome || 'Serviço'}
