@@ -294,18 +294,18 @@ const getPacoteTotalByService = (servico) => {
   return Number.isFinite(total) && total > 1 ? total : 0
 }
 
-const waitForSaveAnimation = async (startedAt) => {
-  const remaining = 1000 - (Date.now() - startedAt)
+const waitForSaveAnimation = async (startedAt, duration = 1000) => {
+  const remaining = duration - (Date.now() - startedAt)
   if (remaining > 0) {
     await new Promise((resolve) => setTimeout(resolve, remaining))
   }
 }
 
-function SaveButton({ loading, onClick }) {
+function SaveButton({ loading, onClick, loadingLabel = 'Salvando...', type = 'button', className = '' }) {
   return (
     <button
-      type="button"
-      className={`btn-primary save-button ${loading ? 'save-button-loading' : ''}`}
+      type={type}
+      className={`btn-primary save-button ${className} ${loading ? 'save-button-loading' : ''}`}
       onClick={onClick}
       disabled={loading}
       aria-busy={loading}
@@ -313,7 +313,7 @@ function SaveButton({ loading, onClick }) {
       {loading ? (
         <span className="save-button-content">
           <span className="save-spinner" aria-hidden="true" />
-          <span>Salvando...</span>
+          <span>{loadingLabel}</span>
           <span className="save-spark save-spark-one" aria-hidden="true" />
           <span className="save-spark save-spark-two" aria-hidden="true" />
           <span className="save-spark save-spark-three" aria-hidden="true" />
@@ -335,11 +335,14 @@ function LoginScreen() {
     event.preventDefault()
     setError('')
     setLoading(true)
+    const startedAt = Date.now()
 
     const { error: loginError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password: senha,
     })
+
+    await waitForSaveAnimation(startedAt, 1500)
 
     if (loginError) {
       setError('Email ou senha inválidos.')
@@ -395,9 +398,13 @@ function LoginScreen() {
           </p>
         ) : null}
 
-        <button type="submit" className="btn-primary mt-6 w-full" disabled={loading}>
-          {loading ? 'Entrando...' : 'Entrar'}
-        </button>
+        <div className="mt-6 w-full">
+          {loading ? (
+            <SaveButton loading loadingLabel="Entrando..." type="submit" className="w-full" />
+          ) : (
+            <button type="submit" className="btn-primary w-full">Entrar</button>
+          )}
+        </div>
       </form>
     </main>
   )
@@ -482,13 +489,24 @@ export default function App() {
       setAuthLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+    let signInTimeout
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
+      if (event === 'SIGNED_IN') {
+        clearTimeout(signInTimeout)
+        signInTimeout = setTimeout(() => {
+          setSession(currentSession)
+          setAuthLoading(false)
+        }, 1500)
+        return
+      }
+
       setSession(currentSession)
       setAuthLoading(false)
     })
 
     return () => {
       mounted = false
+      clearTimeout(signInTimeout)
       subscription.unsubscribe()
     }
   }, [])
