@@ -361,7 +361,7 @@ function LoginScreen() {
         onSubmit={handleSubmit}
       >
         <div className="mb-8">
-          <p className="label">Agenda Manicure</p>
+          <p className="label">Agenda Aline Bukowski Nail</p>
           <h1 className="mt-2 text-2xl font-semibold">Entrar</h1>
         </div>
 
@@ -1194,6 +1194,10 @@ export default function App() {
     container.scrollBy({ left: direction * amount, behavior: 'smooth' })
   }
 
+  const signOut = async () => {
+    await supabase.auth.signOut()
+  }
+
   if (authLoading) {
     return <div className="flex min-h-screen items-center justify-center text-white/60">Carregando...</div>
   }
@@ -1287,6 +1291,9 @@ export default function App() {
                 </button>
                 <button type="button" className="btn-primary" onClick={openNewAgendamento}>
                   Novo agendamento
+                </button>
+                <button type="button" className="btn-ghost" onClick={signOut}>
+                  Sair
                 </button>
               </div>
             </header>
