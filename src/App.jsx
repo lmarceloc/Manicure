@@ -1168,33 +1168,55 @@ export default function App() {
     const confirmed = window.confirm('Tem certeza que deseja excluir este agendamento?')
     if (!confirmed) return
 
-    const response = await supabase.from('agendamentos').delete().eq('id', editingAgendamento.id)
+    try {
+      const { error: pacoteError } = await supabase
+        .from('pacote_agendamentos')
+        .delete()
+        .eq('agendamento_id', editingAgendamento.id)
 
-    if (response.error) {
+      if (pacoteError) {
+        console.error('Erro ao excluir dados do pacote:', pacoteError)
+        setError('Não foi possível excluir o agendamento.')
+        return
+      }
+
+      const { error: agendamentoError } = await supabase
+        .from('agendamentos')
+        .delete()
+        .eq('id', editingAgendamento.id)
+
+      if (agendamentoError) {
+        console.error('Erro ao excluir agendamento:', agendamentoError)
+        setError('Não foi possível excluir o agendamento.')
+        return
+      }
+
+      const deletedAgendamentoId = editingAgendamento.id
+      setRescheduleTimes((prev) => {
+        const next = { ...prev }
+        delete next[deletedAgendamentoId]
+        return next
+      })
+      setRescheduleLocks((prev) => {
+        const next = { ...prev }
+        delete next[deletedAgendamentoId]
+        return next
+      })
+      setEditLocks((prev) => {
+        const next = { ...prev }
+        delete next[deletedAgendamentoId]
+        return next
+      })
+
+      setError('')
+      setAgendamentoModalOpen(false)
+      setEditingAgendamento(null)
+      resetAgendamentoForm()
+      await loadData()
+    } catch (error) {
+      console.error('Erro inesperado ao excluir agendamento:', error)
       setError('Não foi possível excluir o agendamento.')
-      return
     }
-
-    setRescheduleTimes((prev) => {
-      const next = { ...prev }
-      delete next[editingAgendamento.id]
-      return next
-    })
-    setRescheduleLocks((prev) => {
-      const next = { ...prev }
-      delete next[editingAgendamento.id]
-      return next
-    })
-    setEditLocks((prev) => {
-      const next = { ...prev }
-      delete next[editingAgendamento.id]
-      return next
-    })
-
-    setAgendamentoModalOpen(false)
-    setEditingAgendamento(null)
-    resetAgendamentoForm()
-    await loadData()
   }
 
   const servicosAtivos = servicos.filter((servico) => servico.ativo)
@@ -1937,7 +1959,7 @@ export default function App() {
         title={editingClient ? 'Editar cliente' : 'Nova cliente'}
         onClose={() => setClientModalOpen(false)}
         footer={
-          <div className="flex w-full items-center justify-between gap-3">
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
             {editingClient ? (
               <button
                 type="button"
@@ -1949,7 +1971,7 @@ export default function App() {
             ) : (
               <span />
             )}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3">
               <button type="button" className="btn-outline" onClick={() => setClientModalOpen(false)}>
                 Cancelar
               </button>
@@ -2044,7 +2066,7 @@ export default function App() {
           resetAgendamentoForm()
         }}
         footer={
-          <div className="flex w-full items-center justify-between gap-3">
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
             {editingAgendamento ? (
               <button
                 type="button"
@@ -2056,7 +2078,7 @@ export default function App() {
             ) : (
               <span />
             )}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3">
               <button
                 type="button"
                 className="btn-outline"

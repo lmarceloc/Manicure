@@ -144,7 +144,7 @@ body {
   }
 
   .save-button {
-    @apply relative overflow-visible;
+    @apply relative max-w-full min-w-0 overflow-visible;
   }
 
   .save-button-loading {
@@ -152,7 +152,7 @@ body {
   }
 
   .save-button-content {
-    @apply relative inline-flex items-center gap-2;
+    @apply relative inline-flex min-w-0 max-w-full items-center gap-2;
   }
 
   .save-spinner {
