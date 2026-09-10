@@ -899,36 +899,6 @@ export default function App() {
     return data?.[0] || null
   }
 
-  const markNextPacoteItem = async (pacoteId) => {
-    const { data: pacote, error: fetchError } = await supabase
-      .from('pacote_agendamentos')
-      .select('*')
-      .eq('id', pacoteId)
-      .single()
-
-    if (fetchError || !pacote) {
-      console.error('Erro ao buscar pacote:', fetchError)
-      return
-    }
-
-    const items = [pacote.item_1, pacote.item_2, pacote.item_3, pacote.item_4]
-    const nextIndex = items.findIndex((item) => !item)
-
-    if (nextIndex !== -1) {
-      const updatePayload = {}
-      updatePayload[`item_${nextIndex + 1}`] = true
-
-      const { error: updateError } = await supabase
-        .from('pacote_agendamentos')
-        .update(updatePayload)
-        .eq('id', pacoteId)
-
-      if (updateError) {
-        console.error('Erro ao atualizar item do pacote:', updateError)
-      }
-    }
-  }
-
   const saveAgendamento = async () => {
     if (savingAgendamento) return
     setSavingAgendamento(true)
@@ -985,6 +955,41 @@ export default function App() {
         weekIndex += 1
         recurringDate = addWeeksToDate(agendamentoForm.data, weekIndex)
       }
+      const totalSlots = getPacoteTotalByService(servico)
+      const isConcluindoPacote =
+        servico?.é_pacote &&
+        totalSlots > 0 &&
+        agendamentoForm.status === 'concluido' &&
+        editingAgendamento?.status !== 'concluido'
+      let pacoteItems = agendamentoForm.pacote_items || []
+
+      if (servico?.é_pacote && totalSlots > 0) {
+        if (isConcluindoPacote) {
+          const { data: concluidosAnteriores, error: completedError } = await supabase
+            .from('agendamentos')
+            .select('id')
+            .eq('cliente_id', agendamentoForm.cliente_id)
+            .eq('servico_id', agendamentoForm.servico_id)
+            .eq('status', 'concluido')
+            .neq('id', editingAgendamento?.id)
+            .lt('data_hora_inicio', combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio))
+
+          if (completedError) {
+            console.error('Erro ao buscar histórico do pacote:', completedError)
+            setError('Não foi possível calcular o progresso do pacote.')
+            return
+          }
+
+          pacoteItems = buildPacoteItems(
+            totalSlots,
+            (concluidosAnteriores?.length || 0) + 1,
+            true
+          )
+        } else if (agendamentoForm.status !== 'concluido') {
+          pacoteItems = Array(totalSlots).fill(false)
+        }
+      }
+
       const payloads = dates.map((date) => {
         const inicio = combineDateTime(date, agendamentoForm.hora_inicio)
         const fim = servico
@@ -1003,7 +1008,7 @@ export default function App() {
           data_hora_fim: fim,
           status: agendamentoForm.status,
           observacoes: agendamentoForm.observacoes.trim() || null,
-          pacote_items: agendamentoForm.pacote_items || [],
+          pacote_items: pacoteItems,
         }
       })
 
@@ -1044,12 +1049,9 @@ export default function App() {
         }
       }
 
-      // Lógica de pacote_agendamentos para serviços tipo pacote
+      // Mantém o registro legado de pacote para novos agendamentos.
       const servicoAtual = servicos.find((s) => s.id === agendamentoForm.servico_id)
       if (servicoAtual?.é_pacote) {
-        const isConcluido = agendamentoForm.status === 'concluido'
-
-        // Novo agendamento com pacote: criar novo registro em pacote_agendamentos
         if (!editingAgendamento && !servico?.é_pacote) {
           const { error: insertError } = await supabase
             .from('pacote_agendamentos')
@@ -1064,84 +1066,6 @@ export default function App() {
 
           if (insertError) {
             console.error('Erro ao criar pacote_agendamentos:', insertError)
-          }
-        }
-
-        // Quando marca como concluido: marcar próximo item do pacote
-        if (isConcluido && editingAgendamento) {
-          const { data: pacotes, error: fetchError } = await supabase
-            .from('pacote_agendamentos')
-            .select('*')
-            .eq('agendamento_id', agendamentoId)
-            .single()
-
-          if (!fetchError && pacotes) {
-            await markNextPacoteItem(pacotes.id)
-          }
-        }
-      }
-
-      // Sincroniza pacote_items em agendamentos futuros do mesmo cliente+serviço
-      const totalSlots = getPacoteTotalByService(servicoAtual)
-      if (servicoAtual?.é_pacote && totalSlots > 0) {
-        const isConcluido = agendamentoForm.status === 'concluido'
-        const completedNow = agendamentos.filter(
-          (a) =>
-            a.cliente_id === agendamentoForm.cliente_id &&
-            a.servico_id === agendamentoForm.servico_id &&
-            a.status === 'concluido' &&
-            a.id !== editingAgendamento?.id
-        ).length + (isConcluido ? 1 : 0)
-
-        const futureAgendamentos = agendamentos.filter(
-          (a) =>
-            a.cliente_id === agendamentoForm.cliente_id &&
-            a.servico_id === agendamentoForm.servico_id &&
-            a.id !== editingAgendamento?.id &&
-            a.status !== 'concluido'
-        )
-
-        // Para atendimentos futuros (pendentes), nunca passamos isConcluidoNow=true
-        // Isso garante que se completedNow=4, os futuros mostrem 0/4
-        const syncItems = buildPacoteItems(totalSlots, completedNow, false)
-
-        for (const a of futureAgendamentos) {
-          await supabase
-            .from('agendamentos')
-            .update({ pacote_items: syncItems })
-            .eq('id', a.id)
-        }
-      }
-
-      // Sincroniza apenas o próximo agendamento de pacote quando o ciclo fecha
-      if (servicoAtual?.é_pacote && totalSlots > 0) {
-        const isConcluido = agendamentoForm.status === 'concluido'
-        if (isConcluido) {
-          const completedCount = agendamentos.filter(
-            (a) =>
-              a.cliente_id === agendamentoForm.cliente_id &&
-              a.servico_id === agendamentoForm.servico_id &&
-              a.status === 'concluido' &&
-              a.id !== editingAgendamento?.id
-          ).length + 1
-
-          // Se fechou o ciclo, zera o próximo
-          if (completedCount % totalSlots === 0) {
-            const nextAgendamento = agendamentos.find(
-              (a) =>
-                a.cliente_id === agendamentoForm.cliente_id &&
-                a.servico_id === agendamentoForm.servico_id &&
-                a.id !== editingAgendamento?.id &&
-                a.status !== 'concluido' &&
-                new Date(a.data_hora_inicio) > new Date(editingAgendamento?.data_hora_inicio || 0)
-            )
-
-            if (nextAgendamento) {
-              await supabase
-                .from('agendamentos')
-                .update({ pacote_items: Array(totalSlots).fill(false) })
-                .eq('id', nextAgendamento.id)
-            }
           }
         }
       }
