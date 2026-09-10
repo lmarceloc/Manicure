@@ -956,38 +956,42 @@ export default function App() {
         recurringDate = addWeeksToDate(agendamentoForm.data, weekIndex)
       }
       const totalSlots = getPacoteTotalByService(servico)
-      const isConcluindoPacote =
-        servico?.é_pacote &&
-        totalSlots > 0 &&
-        agendamentoForm.status === 'concluido' &&
-        editingAgendamento?.status !== 'concluido'
-      let pacoteItems = agendamentoForm.pacote_items || []
+      const isPacote = servico?.é_pacote && totalSlots > 0
+      const isConcluido = agendamentoForm.status === 'concluido'
+      const isPacoteConcluido = isPacote && isConcluido && editingAgendamento
+      const emptyPacoteItems = isPacote ? Array(totalSlots).fill(false) : []
+      const currentDateTime = combineDateTime(
+        agendamentoForm.data,
+        agendamentoForm.hora_inicio
+      )
+      let pacoteItems = isPacote ? emptyPacoteItems : agendamentoForm.pacote_items || []
 
-      if (servico?.é_pacote && totalSlots > 0) {
-        if (isConcluindoPacote) {
-          const { data: concluidosAnteriores, error: completedError } = await supabase
-            .from('agendamentos')
-            .select('id')
-            .eq('cliente_id', agendamentoForm.cliente_id)
-            .eq('servico_id', agendamentoForm.servico_id)
-            .eq('status', 'concluido')
-            .neq('id', editingAgendamento?.id)
-            .lt('data_hora_inicio', combineDateTime(agendamentoForm.data, agendamentoForm.hora_inicio))
+      if (isPacoteConcluido) {
+        const completedQuery = supabase
+          .from('agendamentos')
+          .select('id')
+          .eq('cliente_id', agendamentoForm.cliente_id)
+          .eq('servico_id', agendamentoForm.servico_id)
+          .eq('status', 'concluido')
+          .lt('data_hora_inicio', currentDateTime)
 
-          if (completedError) {
-            console.error('Erro ao buscar histórico do pacote:', completedError)
-            setError('Não foi possível calcular o progresso do pacote.')
-            return
-          }
-
-          pacoteItems = buildPacoteItems(
-            totalSlots,
-            (concluidosAnteriores?.length || 0) + 1,
-            true
-          )
-        } else if (agendamentoForm.status !== 'concluido') {
-          pacoteItems = Array(totalSlots).fill(false)
+        if (editingAgendamento.id) {
+          completedQuery.neq('id', editingAgendamento.id)
         }
+
+        const { data: concluidosAnteriores, error: completedError } = await completedQuery
+
+        if (completedError) {
+          console.error('Erro ao buscar histórico do pacote:', completedError)
+          setError('Não foi possível calcular o progresso do pacote.')
+          return
+        }
+
+        pacoteItems = buildPacoteItems(
+          totalSlots,
+          (concluidosAnteriores?.length || 0) + 1,
+          true
+        )
       }
 
       const payloads = dates.map((date) => {
@@ -1008,9 +1012,13 @@ export default function App() {
           data_hora_fim: fim,
           status: agendamentoForm.status,
           observacoes: agendamentoForm.observacoes.trim() || null,
-          pacote_items: pacoteItems,
+          pacote_items: isPacote ? emptyPacoteItems : pacoteItems,
         }
       })
+
+      if (editingAgendamento && isPacoteConcluido) {
+        payloads[0].pacote_items = pacoteItems
+      }
 
       let agendamentoId
       if (editingAgendamento) {
