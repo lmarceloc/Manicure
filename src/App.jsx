@@ -1338,6 +1338,14 @@ export default function App() {
                               Boolean(pacoteSessao) &&
                               ['pendente', 'confirmado'].includes(item.status) &&
                               new Date(item.data_hora_fim || item.data_hora_inicio) < new Date()
+                            // Pacote é pago inteiro na sessão 1; antes de concluir, o card mostra o
+                            // valor previsto da sessão. Concluído mostra o valor_cobrado gravado.
+                            const valorCard =
+                              pacoteSessao && item.status !== 'concluido'
+                                ? pacoteSessao.sessao === 1
+                                  ? Number(servicoAgendamento?.valor) || 0
+                                  : 0
+                                : getValorAgendamento(item, servicos)
                             const availableTimes = getAvailableTimes(
                               duracao,
                               itens,
@@ -1376,7 +1384,7 @@ export default function App() {
                                     {item.cliente?.nome_completo || 'Cliente'}
                                   </p>
                                   <p className="mt-2 text-base font-semibold text-emerald-600">
-                                    {CURRENCY.format(getValorAgendamento(item, servicos))}
+                                    {CURRENCY.format(valorCard)}
                                   </p>
                                   {pacoteSessao && (() => {
                                     const { sessao, totalPacote: total } = pacoteSessao
