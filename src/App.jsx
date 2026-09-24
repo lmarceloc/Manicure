@@ -1390,23 +1390,17 @@ export default function App() {
                                           PACOTE {sessao}/{total}
                                         </p>
                                         <div className="flex flex-wrap gap-1">
-                                          {computedItems.map((isCompleted, idx) => {
-                                            const isSessaoAtual = !isSessaoConcluida && idx === sessao - 1
-                                            return (
-                                              <span
-                                                key={idx}
-                                                title={isSessaoAtual ? 'Sessão deste agendamento' : undefined}
-                                                className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${isCompleted
-                                                    ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
-                                                    : isSessaoAtual
-                                                      ? 'border-2 border-dashed border-amber-500 text-amber-700 font-semibold'
-                                                      : 'bg-white/5 border-white/20 text-white/40'
-                                                  }`}
-                                              >
-                                                {isCompleted ? '✓' : isSessaoAtual ? sessao : '·'}
-                                              </span>
-                                            )
-                                          })}
+                                          {computedItems.map((isCompleted, idx) => (
+                                            <span
+                                              key={idx}
+                                              className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${isCompleted
+                                                  ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
+                                                  : 'bg-white/5 border-white/20 text-white/40'
+                                                }`}
+                                            >
+                                              {isCompleted ? '✓' : '·'}
+                                            </span>
+                                          ))}
                                         </div>
                                         {isSessaoConcluida && sessao === total && (
                                           <p className="text-xs text-emerald-200">Pacote concluído.</p>
