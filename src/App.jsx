@@ -1379,27 +1379,36 @@ export default function App() {
                                     {CURRENCY.format(getValorAgendamento(item, servicos))}
                                   </p>
                                   {pacoteSessao && (() => {
-                                    const { sessao: completed, totalPacote: total } = pacoteSessao
-                                    const computedItems = buildPacoteItems(total, completed)
+                                    const { sessao, totalPacote: total } = pacoteSessao
+                                    // A sessão deste agendamento só conta como feita depois de concluída
+                                    const isSessaoConcluida = item.status === 'concluido'
+                                    const concluidas = isSessaoConcluida ? sessao : sessao - 1
+                                    const computedItems = buildPacoteItems(total, concluidas)
                                     return (
                                       <div className="mt-3 space-y-2">
                                         <p className="text-xs font-semibold text-white/70">
-                                          PACOTE {completed}/{total}
+                                          PACOTE {sessao}/{total}
                                         </p>
                                         <div className="flex flex-wrap gap-1">
-                                          {computedItems.map((isCompleted, idx) => (
-                                            <span
-                                              key={idx}
-                                              className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${isCompleted
-                                                  ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
-                                                  : 'bg-white/5 border-white/20 text-white/40'
-                                                }`}
-                                            >
-                                              {isCompleted ? '✓' : '·'}
-                                            </span>
-                                          ))}
+                                          {computedItems.map((isCompleted, idx) => {
+                                            const isSessaoAtual = !isSessaoConcluida && idx === sessao - 1
+                                            return (
+                                              <span
+                                                key={idx}
+                                                title={isSessaoAtual ? 'Sessão deste agendamento' : undefined}
+                                                className={`h-6 w-6 rounded border flex items-center justify-center text-xs ${isCompleted
+                                                    ? 'bg-emerald-500/40 border-emerald-400 text-emerald-200 font-semibold'
+                                                    : isSessaoAtual
+                                                      ? 'border-2 border-dashed border-amber-500 text-amber-700 font-semibold'
+                                                      : 'bg-white/5 border-white/20 text-white/40'
+                                                  }`}
+                                              >
+                                                {isCompleted ? '✓' : isSessaoAtual ? sessao : '·'}
+                                              </span>
+                                            )
+                                          })}
                                         </div>
-                                        {completed === total && total > 0 && (
+                                        {isSessaoConcluida && sessao === total && (
                                           <p className="text-xs text-emerald-200">Pacote concluído.</p>
                                         )}
                                         {isPacoteNaoConcluido && (
