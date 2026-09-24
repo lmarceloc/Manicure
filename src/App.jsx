@@ -1333,6 +1333,11 @@ export default function App() {
                             const duracao = getServicoDuracao(item, servicos)
                             const servicoAgendamento = item.servico ?? servicosById.get(item.servico_id)
                             const pacoteSessao = pacoteSessaoById.get(item.id)
+                            // O pacote só avança quando o agendamento é concluído
+                            const isPacoteNaoConcluido =
+                              Boolean(pacoteSessao) &&
+                              ['pendente', 'confirmado'].includes(item.status) &&
+                              new Date(item.data_hora_fim || item.data_hora_inicio) < new Date()
                             const availableTimes = getAvailableTimes(
                               duracao,
                               itens,
@@ -1396,6 +1401,11 @@ export default function App() {
                                         </div>
                                         {completed === total && total > 0 && (
                                           <p className="text-xs text-emerald-200">Pacote concluído.</p>
+                                        )}
+                                        {isPacoteNaoConcluido && (
+                                          <p className="text-xs font-semibold text-amber-700">
+                                            Não concluído: marque para avançar o pacote
+                                          </p>
                                         )}
                                       </div>
                                     )
