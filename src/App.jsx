@@ -44,6 +44,7 @@ const createAgendamentoForm = (dateValue) => ({
   cliente_id: '',
   servico_id: '',
   valor_cobrado: '',
+  valor_editado: false,
   data: dateValue,
   hora_inicio: '09:00',
   status: 'pendente',
@@ -137,42 +138,19 @@ const getServicoDuracao = (agendamento, servicos) => {
   )
 }
 
-const getPacoteStatus = (pacoteItems) => {
-  if (!pacoteItems || pacoteItems.length === 0) return { completed: 0, total: 0 }
-  const completed = pacoteItems.filter(Boolean).length
-  return { completed, total: pacoteItems.length }
+// Quantidade de itens marcados em pacote_items (0 quando vazio ou inválido)
+const countPacoteItemsMarcados = (pacoteItems, totalSlots) => {
+  if (!Array.isArray(pacoteItems)) return 0
+  return Math.min(pacoteItems.filter((value) => value === true).length, totalSlots)
 }
 
-const getDefaultPackageQuantity = (serviceName) => {
-  if (!serviceName) return 0
-  const name = serviceName.toLowerCase()
+// Regra do lembrete do n8n: sessão atual = sessão do último concluído anterior + 1.
+// Sem anterior, ou anterior com o pacote cheio, começa um novo pacote.
+const getProximaSessaoPacote = (sessaoAnterior, totalSlots) =>
+  !sessaoAnterior || sessaoAnterior >= totalSlots ? 1 : sessaoAnterior + 1
 
-  if (name.includes('2maos e 2 pes') || name.includes('2 mãos e 2 pés')) return 2
-  if (name.includes('4 mãos e 2 pés') || name.includes('4 mãos')) return 4
-  return 0
-}
-
-// Constrói pacote_items a partir da contagem de atendimentos concluídos
-const buildPacoteItems = (totalSlots, completedCount, isConcluidoNow = false) => {
-  if (totalSlots <= 0) return []
-  const inCycle = completedCount % totalSlots
-  // Se completedCount é um múltiplo de totalSlots, inCycle será 0.
-  // Se estamos marcando como concluído agora, queremos mostrar "Cheio" (ex: 4/4).
-  // Se NÃO estamos marcando como concluído (ex: um novo agendamento pendente após o ciclo),
-  // inCycle=0 significa que estamos no início de um novo ciclo (0/4).
-  const checked = (inCycle === 0 && completedCount > 0 && isConcluidoNow) ? totalSlots : inCycle
-  return Array(totalSlots).fill(false).map((_, i) => i < checked)
-}
-
-const countCompletedPacote = (clienteId, servicoId, excludeId, agendamentos) => {
-  return agendamentos.filter(
-    (a) =>
-      a.cliente_id === clienteId &&
-      a.servico_id === servicoId &&
-      a.status === 'concluido' &&
-      a.id !== excludeId
-  ).length
-}
+const buildPacoteItems = (totalSlots, sessao) =>
+  Array(totalSlots).fill(false).map((_, i) => i < sessao)
 
 const parseCurrencyNumber = (value) => {
   if (typeof value === 'number') return value
@@ -242,56 +220,23 @@ const getAvailableTimes = (duration, appointmentsForDay, excludeId, servicos) =>
   return available
 }
 
+const servicosPacoteSemTotalAvisados = new Set()
+
+// Número de agendamentos do pacote (servicos.total_sessoes); 0 quando o serviço é avulso.
 const getPacoteTotalByService = (servico) => {
-  if (!servico) return 0
+  if (!servico?.é_pacote) return 0
 
-  const explicitTotal = Number(
-    servico?.pacote_total ??
-    servico?.pacote_quantidade ??
-    servico?.quantidade_pacote ??
-    servico?.qtd_pacote
-  )
-  if (Number.isFinite(explicitTotal) && explicitTotal > 1) return explicitTotal
-
-  const nome = String(servico.nome || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-  if (!nome) return 0
-
-  // Regra de negócio: no pacote "4 mãos e 2 pés", cada sessão considera 1 mão,
-  // então o controle visual precisa ter 4 etapas.
-  const isPacoteQuatroMaosDoisPes =
-    /\b4\s*maos?\b/.test(nome) &&
-    /\b2\s*pes?\b/.test(nome) &&
-    /\be\b/.test(nome)
-  if (isPacoteQuatroMaosDoisPes) return 4
-
-  // Regra de negócio: no pacote "4 mãos e 1 pé", cada sessão considera 1 mão,
-  // então o controle visual precisa ter 4 etapas (4 atendimentos), não 5.
-  const isPacoteQuatroMaosUmPe =
-    /\b4\s*maos?\b/.test(nome) &&
-    /\b1\s*pes?\b/.test(nome)
-  if (isPacoteQuatroMaosUmPe) return 4
-
-  // Regra de negócio: no pacote "2 mãos e 2 pés", cada sessão consome 2 etapas.
-  const isPacoteDuasMaosDoisPes =
-    /\b2\s*maos?\b/.test(nome) &&
-    /\b2\s*pes?\b/.test(nome) &&
-    /\be\b/.test(nome)
-  if (isPacoteDuasMaosDoisPes) return 2
-
-  // Regex com exec para ampliar compatibilidade com Safari/iOS.
-  const regex = /(\d+)\s*(maos?|pes?)/g
-  let match = regex.exec(nome)
-  let total = 0
-
-  while (match) {
-    total += Number(match[1] || 0)
-    match = regex.exec(nome)
+  const total = Number(servico.total_sessoes)
+  if (!Number.isInteger(total) || total < 2) {
+    if (!servicosPacoteSemTotalAvisados.has(servico.id)) {
+      servicosPacoteSemTotalAvisados.add(servico.id)
+      console.warn(
+        `Serviço "${servico.nome}" está com é_pacote = true, mas total_sessoes = ${servico.total_sessoes}; tratado como avulso.`
+      )
+    }
+    return 0
   }
-
-  return Number.isFinite(total) && total > 1 ? total : 0
+  return total
 }
 
 const waitForSaveAnimation = async (startedAt, duration = 1000) => {
@@ -575,34 +520,20 @@ export default function App() {
     return map
   }, [servicos])
 
-  const pacoteConcluidosByKey = useMemo(() => {
-    const map = new Map()
+  // Sessão do pacote (1-based) de cada agendamento de pacote.
+  // Não concluído: quantidade de true do último concluído anterior da mesma cliente e
+  // serviço + 1, igual ao lembrete do n8n.
+  // Concluído: usa o próprio pacote_items quando tem ao menos 1 true; concluídos antigos
+  // zerados exibem a sessão exibida do anterior + 1 (só para exibição, não entra no cálculo
+  // dos próximos).
+  const pacoteSessaoById = useMemo(() => {
+    const sessoes = new Map()
+    const ultimoMarcadosByKey = new Map()
+    const ultimaSessaoExibidaByKey = new Map()
 
-    agendamentos.forEach((item) => {
-      if (item.status !== 'concluido') return
-      if (!item.cliente_id || !item.servico_id) return
-
-      const servico = item.servico ?? servicosById.get(item.servico_id)
-      const totalPacote = getPacoteTotalByService(servico)
-      if (!totalPacote) return
-
-      const key = `${item.cliente_id}:${item.servico_id}`
-      map.set(key, (map.get(key) || 0) + 1)
-    })
-
-    return map
-  }, [agendamentos, servicosById])
-
-  // Para cada agendamento concluído de pacote, calcula sua posição no ciclo (1-based)
-  // Valor só é cobrado quando a posição fecha o ciclo (posição % total === 0)
-  const pacoteOrdinalById = useMemo(() => {
-    const ordinals = new Map()
-    const counters = new Map()
-
-    // Ordenar por data para atribuir ordinal correto
-    const sorted = [...agendamentos]
-      .filter((a) => a.status === 'concluido')
-      .sort((a, b) => new Date(a.data_hora_inicio) - new Date(b.data_hora_inicio))
+    const sorted = [...agendamentos].sort(
+      (a, b) => new Date(a.data_hora_inicio) - new Date(b.data_hora_inicio)
+    )
 
     sorted.forEach((item) => {
       if (!item.cliente_id || !item.servico_id) return
@@ -611,21 +542,29 @@ export default function App() {
       if (!totalPacote) return
 
       const key = `${item.cliente_id}:${item.servico_id}`
-      const seq = (counters.get(key) || 0) + 1
-      counters.set(key, seq)
-      ordinals.set(item.id, { seq, totalPacote })
+      if (item.status === 'concluido') {
+        const marcados = countPacoteItemsMarcados(item.pacote_items, totalPacote)
+        const sessao =
+          marcados > 0
+            ? marcados
+            : getProximaSessaoPacote(ultimaSessaoExibidaByKey.get(key), totalPacote)
+        ultimoMarcadosByKey.set(key, marcados)
+        ultimaSessaoExibidaByKey.set(key, sessao)
+        sessoes.set(item.id, { sessao, totalPacote })
+      } else {
+        const sessao = getProximaSessaoPacote(ultimoMarcadosByKey.get(key), totalPacote)
+        sessoes.set(item.id, { sessao, totalPacote })
+      }
     })
 
-    return ordinals
+    return sessoes
   }, [agendamentos, servicosById])
 
+  // Faturamento soma o valor_cobrado gravado (null = 0); o valor do pacote já é
+  // gravado na sessão 1 e as demais sessões ficam com 0.
   const getValorFaturamento = (item) => {
-    const ordinal = pacoteOrdinalById.get(item.id)
-    if (ordinal) {
-      // Pacote: só conta o valor quando fecha o ciclo
-      if ((ordinal.seq - 1) % ordinal.totalPacote !== 0) return 0
-    }
-    return getValorAgendamento(item, servicos)
+    const valor = Number(item.valor_cobrado)
+    return Number.isFinite(valor) ? valor : 0
   }
 
   const totalReceita = faturamentoFiltrado.reduce(
@@ -660,7 +599,7 @@ export default function App() {
       date.setDate(date.getDate() + 1)
     }
     return dias
-  }, [faturamentoFiltrado, periodoInicio, periodoFim, pacoteOrdinalById])
+  }, [faturamentoFiltrado, periodoInicio, periodoFim])
 
   const maiorFaturamentoDiario = Math.max(...faturamentoPorDia.map((item) => item.value), 0)
 
@@ -826,6 +765,7 @@ export default function App() {
       cliente_id: agendamento.cliente_id || '',
       servico_id: agendamento.servico_id || '',
       valor_cobrado: String(valorAgendamento ?? ''),
+      valor_editado: false,
       data: toLocalDateInput(agendamento.data_hora_inicio),
       hora_inicio: toLocalTimeInput(agendamento.data_hora_inicio),
       status: agendamento.status || 'pendente',
@@ -837,17 +777,55 @@ export default function App() {
     setAgendamentoModalOpen(true)
   }
 
+  // Sessão do pacote de um agendamento sendo concluído: true do último concluído anterior
+  // da mesma cliente e serviço + 1 (regra do lembrete do n8n). null quando não é pacote.
+  // O pacote é pago inteiro na sessão 1; as demais sessões valem 0.
+  const getSessaoPacoteAoConcluir = (form) => {
+    const servico = servicos.find((item) => item.id === form.servico_id)
+    const totalSlots = getPacoteTotalByService(servico)
+    const inicio = combineDateTime(form.data, form.hora_inicio)
+    if (!servico?.é_pacote || !totalSlots || !form.cliente_id || !inicio) return null
+
+    const concluidoAnterior = agendamentos
+      .filter(
+        (a) =>
+          a.cliente_id === form.cliente_id &&
+          a.servico_id === form.servico_id &&
+          a.status === 'concluido' &&
+          a.id !== editingAgendamento?.id &&
+          new Date(a.data_hora_inicio) < new Date(inicio)
+      )
+      .sort((a, b) => new Date(b.data_hora_inicio) - new Date(a.data_hora_inicio))[0]
+    const marcadosAnterior = countPacoteItemsMarcados(concluidoAnterior?.pacote_items, totalSlots)
+    const sessao = getProximaSessaoPacote(marcadosAnterior, totalSlots)
+
+    return {
+      sessao,
+      totalSlots,
+      valorSessao: sessao === 1 ? Number(servico.valor) || 0 : 0,
+    }
+  }
+
   const updateAgendamentoField = (field, value) => {
     setAgendamentoForm((prev) => {
       const next = { ...prev, [field]: value }
+      if (field === 'valor_cobrado') next.valor_editado = true
       if (field === 'servico_id' && !editingAgendamento) {
         const servico = servicos.find((item) => item.id === value)
-        if (servico?.é_pacote) {
-          const defaultQty = getDefaultPackageQuantity(servico.nome)
-          next.pacote_items = defaultQty > 0 ? Array(defaultQty).fill(false) : []
-        } else {
-          next.pacote_items = []
-        }
+        const totalPacote = getPacoteTotalByService(servico)
+        next.pacote_items = totalPacote > 0 ? Array(totalPacote).fill(false) : []
+      }
+
+      // Ao concluir um pacote, sugere o valor da sessão, sem sobrescrever o que foi digitado
+      const isConcluindo =
+        next.status === 'concluido' && editingAgendamento?.status !== 'concluido'
+      if (
+        isConcluindo &&
+        !next.valor_editado &&
+        ['status', 'cliente_id', 'servico_id', 'data', 'hora_inicio'].includes(field)
+      ) {
+        const pacote = getSessaoPacoteAoConcluir(next)
+        if (pacote) next.valor_cobrado = String(pacote.valorSessao)
       }
       return next
     })
@@ -860,44 +838,6 @@ export default function App() {
     const end = new Date(start.getTime() + servico.duracao_minutos * 60000)
     return formatTime(end)
   }, [agendamentoForm, servicos])
-
-  const getActivePacoteAgendamento = async (clienteId, servicoId) => {
-    const { data, error } = await supabase
-      .from('pacote_agendamentos')
-      .select('*')
-      .eq('agendamento_id', clienteId === 'temp' ? 'temp' : clienteId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (error) {
-      console.error('Erro ao buscar pacote_agendamentos:', error)
-      return null
-    }
-    return data?.[0] || null
-  }
-
-  const getLastPacoteForClient = async (clienteId, servicoId) => {
-    const { data, error } = await supabase
-      .from('pacote_agendamentos')
-      .select(`
-        *,
-        agendamento:agendamentos(
-          cliente_id,
-          servico_id,
-          status
-        )
-      `)
-      .eq('agendamento.cliente_id', clienteId)
-      .eq('agendamento.servico_id', servicoId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (error) {
-      console.error('Erro ao buscar último pacote:', error)
-      return null
-    }
-    return data?.[0] || null
-  }
 
   const saveAgendamento = async () => {
     if (savingAgendamento) return
@@ -957,41 +897,17 @@ export default function App() {
       }
       const totalSlots = getPacoteTotalByService(servico)
       const isPacote = servico?.é_pacote && totalSlots > 0
-      const isConcluido = agendamentoForm.status === 'concluido'
-      const isPacoteConcluido = isPacote && isConcluido && editingAgendamento
+      // Concluindo agora: criado já como concluído, ou editado de outro status para concluído
+      const isConcluindoPacote =
+        isPacote &&
+        agendamentoForm.status === 'concluido' &&
+        editingAgendamento?.status !== 'concluido'
       const emptyPacoteItems = isPacote ? Array(totalSlots).fill(false) : []
-      const currentDateTime = combineDateTime(
-        agendamentoForm.data,
-        agendamentoForm.hora_inicio
-      )
-      let pacoteItems = isPacote ? emptyPacoteItems : agendamentoForm.pacote_items || []
+      const pacoteItems = isPacote ? emptyPacoteItems : agendamentoForm.pacote_items || []
 
-      if (isPacoteConcluido) {
-        const completedQuery = supabase
-          .from('agendamentos')
-          .select('id')
-          .eq('cliente_id', agendamentoForm.cliente_id)
-          .eq('servico_id', agendamentoForm.servico_id)
-          .eq('status', 'concluido')
-          .lt('data_hora_inicio', currentDateTime)
-
-        if (editingAgendamento.id) {
-          completedQuery.neq('id', editingAgendamento.id)
-        }
-
-        const { data: concluidosAnteriores, error: completedError } = await completedQuery
-
-        if (completedError) {
-          console.error('Erro ao buscar histórico do pacote:', completedError)
-          setError('Não foi possível calcular o progresso do pacote.')
-          return
-        }
-
-        pacoteItems = buildPacoteItems(
-          totalSlots,
-          (concluidosAnteriores?.length || 0) + 1,
-          true
-        )
+      const getPacoteItemsAoConcluir = (date) => {
+        const pacote = getSessaoPacoteAoConcluir({ ...agendamentoForm, data: date })
+        return pacote ? buildPacoteItems(pacote.totalSlots, pacote.sessao) : pacoteItems
       }
 
       const payloads = dates.map((date) => {
@@ -1012,12 +928,14 @@ export default function App() {
           data_hora_fim: fim,
           status: agendamentoForm.status,
           observacoes: agendamentoForm.observacoes.trim() || null,
-          pacote_items: isPacote ? emptyPacoteItems : pacoteItems,
+          pacote_items: isConcluindoPacote ? getPacoteItemsAoConcluir(date) : pacoteItems,
         }
       })
 
-      if (editingAgendamento && isPacoteConcluido) {
-        payloads[0].pacote_items = pacoteItems
+      // Na edição, só grava pacote_items quando o agendamento está sendo concluído agora;
+      // nos demais casos preserva o que já está no banco (ex.: preenchido pelo n8n).
+      if (editingAgendamento && !isConcluindoPacote) {
+        delete payloads[0].pacote_items
       }
 
       let agendamentoId
@@ -1414,22 +1332,7 @@ export default function App() {
                           {itens.map((item) => {
                             const duracao = getServicoDuracao(item, servicos)
                             const servicoAgendamento = item.servico ?? servicosById.get(item.servico_id)
-                            const totalPacote = getPacoteTotalByService(servicoAgendamento)
-                            const pacoteKey =
-                              totalPacote && item.cliente_id && item.servico_id
-                                ? `${item.cliente_id}:${item.servico_id}`
-                                : ''
-                            const totalConcluidosPacote = pacoteKey
-                              ? pacoteConcluidosByKey.get(pacoteKey) || 0
-                              : 0
-                            const progressoPacoteAtual =
-                              totalConcluidosPacote > 0
-                                ? ((totalConcluidosPacote - 1) % totalPacote) + 1
-                                : 0
-                            const pacoteConcluido =
-                              totalPacote > 0 &&
-                              totalConcluidosPacote > 0 &&
-                              totalConcluidosPacote % totalPacote === 0
+                            const pacoteSessao = pacoteSessaoById.get(item.id)
                             const availableTimes = getAvailableTimes(
                               duracao,
                               itens,
@@ -1453,12 +1356,6 @@ export default function App() {
                               !isCanceled &&
                               !isRescheduleLocked
                             const hasAlternatives = availableTimes.some((time) => time !== currentTime)
-                            const pacoteStatus =
-                              totalPacote > 0
-                                ? getPacoteStatus(
-                                    buildPacoteItems(totalPacote, totalConcluidosPacote)
-                                  )
-                                : null
 
                             return (
                               <div
@@ -1476,16 +1373,9 @@ export default function App() {
                                   <p className="mt-2 text-base font-semibold text-emerald-600">
                                     {CURRENCY.format(getValorAgendamento(item, servicos))}
                                   </p>
-                                  {totalPacote > 0 && (() => {
-                                    let computedItems
-                                    if (item.status === 'concluido' && pacoteOrdinalById.has(item.id)) {
-                                      const { seq } = pacoteOrdinalById.get(item.id)
-                                      const posInCycle = ((seq - 1) % totalPacote) + 1
-                                      computedItems = Array(totalPacote).fill(false).map((_, i) => i < posInCycle)
-                                    } else {
-                                      computedItems = buildPacoteItems(totalPacote, totalConcluidosPacote)
-                                    }
-                                    const { completed, total } = getPacoteStatus(computedItems)
+                                  {pacoteSessao && (() => {
+                                    const { sessao: completed, totalPacote: total } = pacoteSessao
+                                    const computedItems = buildPacoteItems(total, completed)
                                     return (
                                       <div className="mt-3 space-y-2">
                                         <p className="text-xs font-semibold text-white/70">
@@ -1520,7 +1410,7 @@ export default function App() {
                                       <a
                                         className="btn-confirm"
                                         href={`https://wa.me/${item.cliente.telefone.replace(/\D/g, '').startsWith('55') ? '' : '55'}${item.cliente.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                                          `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(item.data_hora_inicio)} - ${formatTime(item.data_hora_inicio)}${pacoteStatus ? ` pacote ${pacoteStatus.completed + 1}/${pacoteStatus.total}` : ''}`
+                                          `Olá ${item.cliente?.nome_completo || ''} podemos confirmar nosso horário ${formatDate(item.data_hora_inicio)} - ${formatTime(item.data_hora_inicio)}${pacoteSessao ? ` pacote ${pacoteSessao.sessao}/${pacoteSessao.totalPacote}` : ''}`
                                         )}`}
                                         target="_blank"
                                         rel="noreferrer"
@@ -1811,7 +1701,7 @@ export default function App() {
                     <div className="mt-4 space-y-3">
                       {faturamentoFiltrado.map((item) => {
                         const valorFat = getValorFaturamento(item)
-                        const ordinal = pacoteOrdinalById.get(item.id)
+                        const pacote = pacoteSessaoById.get(item.id)
                         return (
                           <div
                             key={item.id}
@@ -1825,9 +1715,9 @@ export default function App() {
                                 {item.cliente?.nome_completo || 'Cliente'} ·{' '}
                                 {item.servico?.nome || 'Serviço'}
                               </p>
-                              {ordinal ? (
+                              {pacote ? (
                                 <p className="text-xs text-white/40">
-                                  Pacote {((ordinal.seq - 1) % ordinal.totalPacote) + 1}/{ordinal.totalPacote}
+                                  Pacote {pacote.sessao}/{pacote.totalPacote}
                                 </p>
                               ) : null}
                             </div>
