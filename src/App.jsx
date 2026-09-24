@@ -98,6 +98,16 @@ const addWeeksToDate = (dateValue, weeks) => {
   return toLocalDateInput(date)
 }
 
+// Aceita só YYYY-MM-DD completo e com ano plausível; o input de data emite
+// valores parciais (ex.: 0002-09-24) enquanto o ano é digitado.
+const isPlausibleDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false
+  const year = Number(value.slice(0, 4))
+  if (year < 2000 || year > 2100) return false
+  const date = new Date(`${value}T00:00:00`)
+  return !Number.isNaN(date.getTime()) && toLocalDateInput(date) === value
+}
+
 const startOfWeek = (dateValue) => {
   const date = new Date(`${dateValue}T00:00:00`)
   const day = (date.getDay() + 6) % 7
@@ -361,10 +371,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('agenda')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const hasLoadedRef = useRef(false)
+  const loadSeqRef = useRef(0)
+  const userIdRef = useRef(null)
 
   const today = toLocalDateInput(new Date())
   const [selectedDate, setSelectedDate] = useState(today)
+  const [dateDraft, setDateDraft] = useState(today)
   const [agendaMode, setAgendaMode] = useState('dia')
   const [weekFocusDate, setWeekFocusDate] = useState(today)
 
@@ -400,29 +415,50 @@ export default function App() {
   const [periodoFim, setPeriodoFim] = useState(today)
   const [faturamentoView, setFaturamentoView] = useState('historico')
 
+  // Primeira carga mostra "Carregando dados..."; recargas mantêm a tela e só
+  // mostram "Atualizando...". Resposta de busca antiga (seq) é descartada.
   const loadData = async () => {
-    setLoading(true)
+    const seq = ++loadSeqRef.current
+    const firstLoad = !hasLoadedRef.current
+    if (firstLoad) setLoading(true)
+    else setRefreshing(true)
     setError('')
 
-    const [clientesRes, servicosRes, agendamentosRes] = await Promise.all([
-      supabase.from('clientes').select('*').order('nome_completo', { ascending: true }),
-      supabase.from('servicos').select('*').order('nome', { ascending: true }),
-      supabase
-        .from('agendamentos')
-        .select('*, cliente:clientes(*), servico:servicos(*)')
-        .order('data_hora_inicio', { ascending: true }),
-    ])
+    let results
+    try {
+      results = await Promise.all([
+        supabase.from('clientes').select('*').order('nome_completo', { ascending: true }),
+        supabase.from('servicos').select('*').order('nome', { ascending: true }),
+        supabase
+          .from('agendamentos')
+          .select('*, cliente:clientes(*), servico:servicos(*)')
+          .order('data_hora_inicio', { ascending: true }),
+      ])
+    } catch (loadError) {
+      console.error('Erro inesperado ao carregar dados:', loadError)
+      results = null
+    }
 
-    if (clientesRes.error || servicosRes.error || agendamentosRes.error) {
-      setError('Não foi possível carregar os dados do Supabase.')
+    if (seq !== loadSeqRef.current) return
+
+    const [clientesRes, servicosRes, agendamentosRes] = results || []
+    if (!results || clientesRes.error || servicosRes.error || agendamentosRes.error) {
+      setError(
+        firstLoad
+          ? 'Não foi possível carregar os dados do Supabase.'
+          : 'Não foi possível atualizar os dados. Mostrando a última versão carregada.'
+      )
       setLoading(false)
+      setRefreshing(false)
       return
     }
 
     setClientes(clientesRes.data || [])
     setServicos(servicosRes.data || [])
     setAgendamentos(agendamentosRes.data || [])
+    hasLoadedRef.current = true
     setLoading(false)
+    setRefreshing(false)
   }
 
   useEffect(() => {
@@ -430,23 +466,31 @@ export default function App() {
 
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       if (!mounted) return
+      userIdRef.current = currentSession?.user?.id ?? null
       setSession(currentSession)
       setAuthLoading(false)
     })
 
+    // O Supabase emite SIGNED_IN toda vez que a aba volta a ficar visível e
+    // TOKEN_REFRESHED a cada renovação; o atraso de 1,5 s é só para login de
+    // um usuário diferente do atual.
     let signInTimeout
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
-      if (event === 'SIGNED_IN') {
-        clearTimeout(signInTimeout)
-        signInTimeout = setTimeout(() => {
-          setSession(currentSession)
-          setAuthLoading(false)
-        }, 1500)
+      const nextUserId = currentSession?.user?.id ?? null
+      clearTimeout(signInTimeout)
+
+      const applySession = () => {
+        userIdRef.current = nextUserId
+        setSession(currentSession)
+        setAuthLoading(false)
+      }
+
+      if (event === 'SIGNED_IN' && nextUserId !== userIdRef.current) {
+        signInTimeout = setTimeout(applySession, 1500)
         return
       }
 
-      setSession(currentSession)
-      setAuthLoading(false)
+      applySession()
     })
 
     return () => {
@@ -456,9 +500,28 @@ export default function App() {
     }
   }, [])
 
+  const sessionUserId = session?.user?.id
+
   useEffect(() => {
-    if (session) loadData()
-  }, [session])
+    if (sessionUserId) {
+      loadData()
+      return
+    }
+
+    // Logout: descarta busca em andamento e limpa os dados do usuário anterior.
+    loadSeqRef.current += 1
+    hasLoadedRef.current = false
+    setClientes([])
+    setServicos([])
+    setAgendamentos([])
+    setError('')
+    setRefreshing(false)
+    setLoading(true)
+  }, [sessionUserId])
+
+  useEffect(() => {
+    setDateDraft(selectedDate)
+  }, [selectedDate])
 
   useEffect(() => {
     if (agendaMode === 'semana') {
@@ -1188,6 +1251,16 @@ export default function App() {
               </div>
             ) : null}
 
+            {refreshing ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="pointer-events-none fixed left-1/2 top-3 z-40 -translate-x-1/2 rounded-full border border-white/10 bg-white/15 px-3 py-1 text-xs text-white/80 backdrop-blur"
+              >
+                Atualizando...
+              </div>
+            ) : null}
+
             {loading ? (
               <div className="glass-panel rounded-2xl px-6 py-12 text-center text-white/60">
                 Carregando dados...
@@ -1220,8 +1293,13 @@ export default function App() {
                       <input
                         type="date"
                         className="input min-w-[160px]"
-                        value={selectedDate}
-                        onChange={(event) => setSelectedDate(event.target.value)}
+                        value={dateDraft}
+                        onChange={(event) => {
+                          const { value } = event.target
+                          setDateDraft(value)
+                          if (isPlausibleDate(value)) setSelectedDate(value)
+                        }}
+                        onBlur={() => setDateDraft(selectedDate)}
                       />
                     </div>
                   </div>
