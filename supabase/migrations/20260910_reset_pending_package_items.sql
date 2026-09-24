@@ -1,3 +1,6 @@
+-- ATENÇÃO: migration já aplicada (UPDATE único, sem trigger/function). Rodada pelo SQL Editor, não consta em supabase_migrations.
+-- NÃO rode este arquivo de novo: ele zeraria o pacote_items que o n8n grava nos agendamentos pendentes.
+
 -- Remove progress copied to pending package appointments by the old frontend logic.
 -- Completed appointments keep their historical pacote_items.
 UPDATE public.agendamentos AS agendamentos
